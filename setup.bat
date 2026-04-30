@@ -70,7 +70,7 @@ echo   1. Download the base SDXL checkpoint into checkpoints\
 echo      (run download_models.bat for an automated download, or see
 echo       docs/install.md for the manual link)
 echo   2. Drop any character LoRAs you've been sent into
-echo      loras\characters\^<name^>_v1\^<name^>_v1.safetensors
+echo      loras\^<name^>\^<name^>.safetensors
 echo   3. Double-click launch_website.bat
 echo   4. Open http://localhost:8765 in your browser
 echo ============================================================
