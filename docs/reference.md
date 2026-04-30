@@ -5,7 +5,7 @@ Power-user docs: folder layout, config schemas, web API. Read this if you're cus
 ## Folder layout
 
 ```
-ai-art/
+vrfu-ai/
 ├── README.md                       Project overview + quickstart
 ├── setup.bat                       First-time install
 ├── download_models.bat             Optional automated checkpoint download

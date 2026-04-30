@@ -26,8 +26,8 @@ The 16 GB tier auto-runs the upscaler at 1.5×; 18+ GB gets full 2×. Training w
 ## Quickstart
 
 ```cmd
-git clone --recursive https://github.com/<your-friend>/ai-art.git
-cd ai-art
+git clone --recursive https://github.com/tsuseki/vrfu-ai.git
+cd vrfu-ai
 setup.bat
 download_models.bat
 launch_website.bat

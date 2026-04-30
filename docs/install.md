@@ -17,8 +17,8 @@ Should print `Python 3.10.x` or `3.11.x`. If `'python' is not recognized`, reins
 ## 2. Clone the repo (with `--recursive`)
 
 ```cmd
-git clone --recursive https://github.com/<your-friend>/ai-art.git C:\ai-art
-cd C:\ai-art
+git clone --recursive https://github.com/tsuseki/vrfu-ai.git C:\vrfu-ai
+cd C:\vrfu-ai
 ```
 
 The `--recursive` flag pulls the bundled **ai-toolkit** training framework as a git submodule. If you forgot it, `setup.bat` will run `git submodule update --init` for you on first run — no manual fixup needed.
