@@ -35,7 +35,7 @@ from pathlib import Path
 
 import torch
 import yaml
-from compel import Compel, ReturnedEmbeddingsType
+from compel import CompelForSDXL
 from diffusers import (
     StableDiffusionXLPipeline,
     StableDiffusionXLImg2ImgPipeline,
@@ -210,37 +210,28 @@ def load_pipeline(cfg: dict):
     return pipe, img2img
 
 
-def make_compel(pipe) -> Compel:
-    """Build a Compel processor for SDXL prompt weighting.
+def make_compel(pipe) -> CompelForSDXL:
+    """Build a CompelForSDXL processor for prompt weighting + long-prompt support.
 
-    Uses default truncate_long_prompts=True. Long-prompt mode (chunking past
-    77 tokens) has known issues in compel 2.3.x — it both raises sporadic
-    AttributeError ('EmbeddingsProviderMulti' has no attribute 'empty_z')
-    AND can hang silently on certain prompts (GPU idle, no exception, just
-    stuck). Until compel 3.x's CompelForSDXL wrapper is stable, sticking with
-    truncated mode trades long-prompt support for reliability.
+    CompelForSDXL is the modern compel API (replaces the deprecated
+    multi-tokenizer Compel constructor). It handles both SDXL text encoders
+    internally, manages truncate_long_prompts=False properly (no hangs, no
+    empty_z errors), and pads positive/negative to the same shape in one call.
 
-    Practical impact: prompts longer than ~77 tokens get tail-truncated.
-    Mitigations:
-    - Keep `character_tags` short (~10 tags)
-    - Put critical scene/pose tags BEFORE token 77
-    - Quality boosters (very aesthetic, absurdres) at the end can be cut;
-      that's OK because they're already in BASE_POSITIVE which prepends.
+    Reference: compel/convenience_wrappers.py CompelForSDXL.__call__
     """
-    return Compel(
-        tokenizer=[pipe.tokenizer, pipe.tokenizer_2],
-        text_encoder=[pipe.text_encoder, pipe.text_encoder_2],
-        returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
-        requires_pooled=[False, True],
-    )
+    return CompelForSDXL(pipe)
 
 
-def encode_with_compel(compel: Compel, prompt: str, negative: str):
-    """Encode positive + negative through Compel, padded to matching length."""
-    pos_cond, pos_pool = compel(prompt)
-    neg_cond, neg_pool = compel(negative or "")
-    pos_cond, neg_cond = compel.pad_conditioning_tensors_to_same_length([pos_cond, neg_cond])
-    return pos_cond, pos_pool, neg_cond, neg_pool
+def encode_with_compel(compel: CompelForSDXL, prompt: str, negative: str):
+    """Encode positive + negative through Compel.
+
+    Returns (pos_cond, pos_pool, neg_cond, neg_pool) matching the old
+    multi-tokenizer compel's tuple shape so call sites don't need updating.
+    """
+    result = compel(main_prompt=prompt, negative_prompt=negative or "")
+    return (result.embeds, result.pooled_embeds,
+            result.negative_embeds, result.negative_pooled_embeds)
 
 
 # ───────────────────────────────────────────────────────────────────────────
