@@ -210,33 +210,49 @@ def load_pipeline(cfg: dict):
     return pipe, img2img
 
 
-def make_compel(pipe) -> Compel:
-    """Build a Compel processor for SDXL prompt weighting + long-prompt support.
+def make_compel(pipe, truncate: bool = False) -> Compel:
+    """Build a Compel processor for SDXL prompt weighting.
 
-    Compel parses SD-WebUI-style syntax: (term:1.5), (term)+, [term]-, etc.
-    For SDXL it needs both tokenizers + text encoders, with `requires_pooled`
-    set per-encoder (the second encoder produces the pooled embedding).
-
-    truncate_long_prompts=False is REQUIRED — without it, the encoder silently
-    truncates everything past CLIP's 77-token limit, which means scene tags,
-    pose, and outfit details at the END of long prompts vanish. Symptom: the
-    LoRA's identity fires fine but no specific clothing/pose/scene shows up.
+    truncate=False enables long-prompt chunking (>77 tokens), but compel 2.3.x
+    has an intermittent bug where chunking raises
+        AttributeError: 'EmbeddingsProviderMulti' object has no attribute 'empty_z'
+    on certain prompts (specifics aren't fully understood — seems to be triggered
+    by particular tag combinations). encode_with_compel() handles this by falling
+    back to a second compel built with truncate=True for that prompt.
     """
     return Compel(
         tokenizer=[pipe.tokenizer, pipe.tokenizer_2],
         text_encoder=[pipe.text_encoder, pipe.text_encoder_2],
         returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
         requires_pooled=[False, True],
-        truncate_long_prompts=False,
+        truncate_long_prompts=truncate,
     )
 
 
-def encode_with_compel(compel: Compel, prompt: str, negative: str):
-    """Encode positive + negative through Compel, padded to matching length."""
-    pos_cond, pos_pool = compel(prompt)
-    neg_cond, neg_pool = compel(negative or "")
-    pos_cond, neg_cond = compel.pad_conditioning_tensors_to_same_length([pos_cond, neg_cond])
-    return pos_cond, pos_pool, neg_cond, neg_pool
+def encode_with_compel(compel_long: Compel, compel_short: Compel,
+                       prompt: str, negative: str):
+    """Encode positive + negative through Compel, padded to matching length.
+
+    Tries the long-prompt encoder first (no truncation). If compel hits its
+    intermittent 'empty_z' bug, falls back to the truncated encoder for this
+    prompt only — accepting a possible 77-token cap on that single image
+    rather than failing the whole queue.
+    """
+    try:
+        pos_cond, pos_pool = compel_long(prompt)
+        neg_cond, neg_pool = compel_long(negative or "")
+        pos_cond, neg_cond = compel_long.pad_conditioning_tensors_to_same_length(
+            [pos_cond, neg_cond])
+        return pos_cond, pos_pool, neg_cond, neg_pool
+    except AttributeError as e:
+        if "empty_z" not in str(e):
+            raise
+        print("  [compel long-prompt bug — using truncated fallback for this image]")
+        pos_cond, pos_pool = compel_short(prompt)
+        neg_cond, neg_pool = compel_short(negative or "")
+        pos_cond, neg_cond = compel_short.pad_conditioning_tensors_to_same_length(
+            [pos_cond, neg_cond])
+        return pos_cond, pos_pool, neg_cond, neg_pool
 
 
 # ───────────────────────────────────────────────────────────────────────────
@@ -284,7 +300,7 @@ def build_prompt(entry: dict, cfg: dict) -> tuple[str, str]:
     return prompt, negative
 
 
-def generate_image(pipe, img2img_pipe, compel, entry: dict, id_: int,
+def generate_image(pipe, img2img_pipe, compel_long, compel_short, entry: dict, id_: int,
                    cfg: dict, output_dir: Path, input_dir: Path) -> tuple[Path, float]:
     seed     = entry.get("seed") or random.randint(0, 2**32 - 1)
     steps    = entry.get("steps", DEFAULT_STEPS)
@@ -307,8 +323,9 @@ def generate_image(pipe, img2img_pipe, compel, entry: dict, id_: int,
     torch.cuda.empty_cache()
     generator = torch.Generator("cuda").manual_seed(int(seed))
 
-    # Encode through Compel — handles (term:1.5) weighting AND prompts >77 tokens
-    pos_cond, pos_pool, neg_cond, neg_pool = encode_with_compel(compel, full_prompt, full_negative)
+    # Encode through Compel — long-prompt mode with truncated fallback
+    pos_cond, pos_pool, neg_cond, neg_pool = encode_with_compel(
+        compel_long, compel_short, full_prompt, full_negative)
 
     mode = "img2img" if "image" in entry else "txt2img"
     print(f"  [{id_str}] {label}  ({mode})")
@@ -397,8 +414,10 @@ def main() -> None:
 
     check_vram()
     pipe, img2img_pipe = load_pipeline(cfg)
-    compel = make_compel(pipe)
-    print("Compel weighting active: (term:1.5), [term], etc. now respected.\n")
+    compel_long  = make_compel(pipe, truncate=False)
+    compel_short = make_compel(pipe, truncate=True)
+    print("Compel weighting active: (term:1.5), [term], etc. respected. "
+          "Long-prompt mode on with truncated fallback.\n")
 
     initial_total = len(queue)
     total = initial_total                # may grow if user adds to queue mid-run
@@ -418,7 +437,8 @@ def main() -> None:
         try:
             entry["id"] = next_id
             output_path, duration, full_prompt, full_negative = generate_image(
-                pipe, img2img_pipe, compel, entry, next_id, cfg, output_dir, input_dir,
+                pipe, img2img_pipe, compel_long, compel_short, entry, next_id,
+                cfg, output_dir, input_dir,
             )
             # Mutate ONLY after success — done.yaml gets the actual sent prompt.
             entry["prompt"]       = full_prompt
