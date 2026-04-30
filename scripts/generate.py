@@ -33,8 +33,51 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+# Force UTF-8 stdout/stderr so em-dashes etc. don't crash on Windows cp932/cp1252.
+# `errors="replace"` keeps the script alive even on legacy code-page consoles.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 import torch
 import yaml
+
+# ── peft + torchao version-mismatch workaround ─────────────────────────────
+# ai-toolkit pins torchao==0.10.0 (the only version compatible with the
+# torch 2.5.1 it requires). peft hard-raises ImportError when it sees torchao
+# < 0.16.0 during LoRA dispatch — even though we don't use torchao-quantized
+# LoRAs. We're not allowed to upgrade torchao (breaks ai-toolkit) and we're
+# not allowed to upgrade torch (breaks ai-toolkit's xformers pin). So patch
+# peft's check to silently say "not available" on old versions instead of
+# crashing. Must run BEFORE diffusers/peft submodules are imported.
+def _patch_peft_torchao_check() -> None:
+    try:
+        from peft import import_utils as _piu
+    except Exception:
+        return
+    _orig = _piu.is_torchao_available
+    def _safe():
+        try:
+            return _orig()
+        except ImportError:
+            return False
+    try:
+        _orig.cache_clear()
+    except Exception:
+        pass
+    _piu.is_torchao_available = _safe
+    # peft eagerly imports peft.tuners.lora.torchao via peft/__init__.py, so it
+    # has already captured the original `is_torchao_available` name. Patch the
+    # call-site reference too.
+    try:
+        from peft.tuners.lora import torchao as _peft_lora_torchao
+        _peft_lora_torchao.is_torchao_available = _safe
+    except Exception:
+        pass
+_patch_peft_torchao_check()
+
 from compel import CompelForSDXL
 from diffusers import (
     StableDiffusionXLPipeline,
@@ -394,7 +437,7 @@ def main() -> None:
     pipe, img2img_pipe = load_pipeline(cfg)
     compel = make_compel(pipe)
     print("Compel weighting active: (term:1.5), [term], etc. respected. "
-          "Prompts truncate at 77 tokens.\n")
+          "Long prompts (>77 tokens) are chunked and concatenated.\n")
 
     initial_total = len(queue)
     total = initial_total                # may grow if user adds to queue mid-run

@@ -25,8 +25,44 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+# Force UTF-8 stdout/stderr so em-dashes etc. don't crash on Windows cp932/cp1252.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 import torch
 import yaml
+
+# ── peft + torchao version-mismatch workaround ─────────────────────────────
+# See generate.py for full explanation. ai-toolkit pins torchao==0.10.0 (only
+# version compatible with the torch 2.5.1 it requires); peft hard-raises on
+# torchao < 0.16.0 even when we don't use torchao-quantized LoRAs. Patch the
+# check to return False instead of raising.
+def _patch_peft_torchao_check() -> None:
+    try:
+        from peft import import_utils as _piu
+    except Exception:
+        return
+    _orig = _piu.is_torchao_available
+    def _safe():
+        try:
+            return _orig()
+        except ImportError:
+            return False
+    try:
+        _orig.cache_clear()
+    except Exception:
+        pass
+    _piu.is_torchao_available = _safe
+    try:
+        from peft.tuners.lora import torchao as _peft_lora_torchao
+        _peft_lora_torchao.is_torchao_available = _safe
+    except Exception:
+        pass
+_patch_peft_torchao_check()
+
 from compel import Compel, ReturnedEmbeddingsType
 from diffusers import StableDiffusionXLImg2ImgPipeline, EulerAncestralDiscreteScheduler
 from PIL import Image

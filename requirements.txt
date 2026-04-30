@@ -9,3 +9,10 @@ PyYAML>=6.0
 
 # Image I/O for upscaler / web image serving (ai-toolkit also depends on it)
 Pillow>=10.0
+
+# Note on torchao: ai-toolkit pins torchao==0.10.0 (the only version compatible
+# with its torch 2.5.1 pin). peft refuses to load LoRAs when it sees torchao
+# < 0.16.0, but we patch peft's check at runtime in scripts/generate.py and
+# scripts/upscale.py so torchao 0.10.0 stays available for ai-toolkit's
+# quantization features (FP8 training, lokr, etc.) without breaking our
+# LoRA-only inference path.
