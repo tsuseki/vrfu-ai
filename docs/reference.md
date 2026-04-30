@@ -11,9 +11,6 @@ ai-art/
 ├── download_models.bat             Optional automated checkpoint download
 ├── requirements.txt                Main pipeline extras (compel, yaml, Pillow)
 ├── launch_website.bat              Start the local web UI
-├── launch_generation.bat           CLI shortcut to generate.py
-├── launch_upscale.bat              CLI shortcut to upscale.py
-├── stop_website.bat                Kill any server still running on 8765
 │
 ├── scripts/                        The Python pipeline
 │   ├── _common.py                  Shared paths, character resolution, activity log

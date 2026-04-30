@@ -111,7 +111,6 @@ You restarted the website server while training was in progress. The training su
 
 Wait for training to complete. The .safetensors will land at `loras/<name>/<name>.safetensors` regardless. Auto-start gen won't fire for that run since the chain flag is in the old (now-dead) server's memory — start it manually.
 
-To prevent: don't restart the server during training. Or use the CLI: `launch_generation.bat <character>`.
 
 ---
 
