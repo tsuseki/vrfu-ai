@@ -2,7 +2,7 @@
 
 Local pipeline for generating anime art of custom characters using SDXL + character LoRAs. Everything runs on your own machine — your GPU does the work, no cloud, no API keys, no rate limits. A web UI bundles generation, voting, organizing, upscaling, and on-rig LoRA training into one workflow.
 
-![preview placeholder](docs/preview.png)
+![Web UI: Liked view of tsu_chocola generations, with the queue/upscale/refresh toolbar](docs/preview.jpg)
 
 ## What it does
 
