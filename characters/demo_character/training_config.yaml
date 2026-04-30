@@ -1,0 +1,71 @@
+---
+# Training config for the demo character.
+# Only used if you want to TRAIN a LoRA for this slot (rare — the demo slot
+# is meant for quick verification with a LoRA your friend has already trained).
+# To train your own, use ➕ New in the website to create a fresh character
+# from the template instead.
+
+job: extension
+config:
+  name: "demo_character"
+  process:
+    - type: 'sd_trainer'
+      training_folder: "../../loras"
+      device: cuda:0
+      trigger_word: "demo character"
+
+      network:
+        type: "lora"
+        linear: 32
+        linear_alpha: 16
+
+      save:
+        dtype: float16
+        save_every: 250
+        max_step_saves_to_keep: 4
+        push_to_hub: false
+
+      datasets:
+        - folder_path: "../../characters/demo_character/training"
+          caption_ext: "txt"
+          caption_dropout_rate: 0.05
+          shuffle_tokens: false
+          cache_latents_to_disk: true
+          resolution: [ 512, 768, 1024 ]
+
+      train:
+        batch_size: 1
+        steps: 2000
+        gradient_accumulation_steps: 1
+        train_unet: true
+        train_text_encoder: true
+        gradient_checkpointing: true
+        noise_scheduler: "ddpm"
+        optimizer: "adamw8bit"
+        lr: 1e-4
+        ema_config:
+          use_ema: true
+          ema_decay: 0.99
+        dtype: bf16
+
+      model:
+        name_or_path: "../../checkpoints/waiIllustriousSDXL_v170.safetensors"
+        is_flux: false
+        arch: sdxl
+
+      sample:
+        sampler: "ddpm"
+        sample_every: 250
+        width: 1024
+        height: 1024
+        prompts:
+          - "demo character, anime girl, solo, looking at viewer, upper body, white background, masterpiece, best quality"
+        neg: "worst quality, low quality, bad anatomy, deformed, blurry, multiple characters, 2girls"
+        seed: 42
+        walk_seed: true
+        guidance_scale: 7
+        sample_steps: 20
+
+meta:
+  name: "demo_character"
+  version: '1.0'

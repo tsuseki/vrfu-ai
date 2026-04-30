@@ -1,0 +1,74 @@
+# ──────────────────────────────────────────────────────────
+# ai-toolkit training config — Cocoa Mizu
+# Spawn:  python C:\Programs\ai-toolkit\run.py <this_file>
+# (scripts/train.py wraps this for the website's Training panel)
+# ──────────────────────────────────────────────────────────
+
+---
+job: extension
+config:
+  name: "cocoa_mizu"
+  process:
+    - type: 'sd_trainer'
+      training_folder: "../../loras"
+      device: cuda:0
+      trigger_word: "cocoa mizu"
+
+      network:
+        type: "lora"
+        linear: 32
+        linear_alpha: 16
+
+      save:
+        dtype: float16
+        save_every: 250
+        max_step_saves_to_keep: 4
+        push_to_hub: false
+
+      datasets:
+        - folder_path: "../../characters/cocoa_mizu/training"
+          caption_ext: "txt"
+          caption_dropout_rate: 0.05
+          shuffle_tokens: false
+          cache_latents_to_disk: true
+          resolution: [ 512, 768, 1024 ]
+
+      train:
+        batch_size: 1
+        steps: 2000
+        gradient_accumulation_steps: 1
+        train_unet: true
+        train_text_encoder: true
+        gradient_checkpointing: true
+        noise_scheduler: "ddpm"
+        optimizer: "adamw8bit"
+        lr: 1e-4
+        ema_config:
+          use_ema: true
+          ema_decay: 0.99
+        dtype: bf16
+
+      model:
+        name_or_path: "../../checkpoints/waiIllustriousSDXL_v170.safetensors"
+        is_flux: false
+        arch: sdxl
+
+      sample:
+        sampler: "ddpm"
+        sample_every: 250
+        width: 1024
+        height: 1024
+        prompts:
+          - "cocoa mizu, animal ears, black animal ears, white inner ear fur, multicolored hair, black hair, white hair streaks, blue hair streaks, blue ahoge, blue eyes, anime girl, solo, looking at viewer, upper body, white background, masterpiece, best quality"
+          - "cocoa mizu, animal ears, black animal ears, multicolored hair, blue ahoge, blue eyes, anime girl, solo, full body, standing, white background, masterpiece, best quality"
+          - "cocoa mizu, animal ears, black animal ears, multicolored hair, blue eyes, anime girl, solo, close-up, face focus, smile, white background, masterpiece, best quality"
+          - "cocoa mizu, animal ears, black animal ears, multicolored hair, blue ahoge, blue eyes, anime girl, solo, nude, upper body, white background, masterpiece, best quality"
+        neg: "worst quality, low quality, bad anatomy, deformed, blurry, extra limbs, ugly, multiple characters"
+        seed: 42
+        walk_seed: true
+        guidance_scale: 7
+        sample_steps: 20
+
+meta:
+  name: "cocoa_mizu"
+  version: '1.0'

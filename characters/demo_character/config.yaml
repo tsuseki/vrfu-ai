@@ -1,0 +1,29 @@
+# ──────────────────────────────────────────────────────────
+# Demo character config
+# Lets you verify your install works end-to-end before training your own.
+#
+# How to use:
+# 1. Drop the LoRA file your friend sent you (e.g. tsu_chocola_v1.safetensors)
+#    into loras/characters/demo_character_v1/demo_character_v1.safetensors
+#    (rename the file if needed so the basename matches the path here)
+# 2. Update trigger_word and character_tags below to match your friend's LoRA
+# 3. Click ▶️ Start in the Generation page — runs the smoke-test prompts
+# ──────────────────────────────────────────────────────────
+
+character_name: Demo Character
+trigger_word:   "your trigger here"
+
+# Replace with the actual visual tags for the LoRA you've been sent.
+character_tags: "1girl, solo"
+
+checkpoint:            "checkpoints/waiIllustriousSDXL_v170.safetensors"
+character_lora:        "loras/demo_character/demo_character.safetensors"
+character_lora_weight: 0.8
+
+extra_loras: []
+
+sampler: euler_a
+
+# Named outfits — replace with actual outfit tags for your character.
+outfits:
+  default: "casual outfit"

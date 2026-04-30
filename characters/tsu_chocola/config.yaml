@@ -1,0 +1,39 @@
+# ──────────────────────────────────────────────────────────
+# Character config — Tsu Chocola
+# This file tells generate.py which model and LoRA to use.
+# ──────────────────────────────────────────────────────────
+
+character_name: Tsu Chocola
+trigger_word: "tsu chocola"
+
+# Core character features auto-prepended to every prompt.
+# These match the tags used during training so the LoRA fires properly.
+# Eye/face tags help pull the LoRA's flame-iris and cheek-diamond detail through.
+character_tags: "1girl, solo, fox girl, black fox ears, solid black fox tail, black hair, red eyes, diamond-shaped pupils, red feather hair ornament, facial mark"
+
+# Base checkpoint (Illustrious-family SDXL fine-tune, NSFW-capable)
+checkpoint: "checkpoints/waiIllustriousSDXL_v170.safetensors"
+
+# Your trained character LoRA
+character_lora: "loras/tsu_chocola/tsu_chocola.safetensors"
+character_lora_weight: 0.8           # 0.8 = identity stays but model's 2D anime style breathes through
+
+# Optional: stack additional LoRAs (style or other characters)
+# Drop style LoRAs in loras\styles\ first.
+extra_loras: []
+# Example for layering a style on top:
+# extra_loras:
+#   - path: "F:\\vrfu-ai\\loras\\styles\\flat_colour_anime.safetensors"
+#     name: style
+#     weight: 0.5
+
+# Sampler — euler_a is the default Illustrious recommendation
+sampler: euler_a       # or: dpmpp_2m_karras
+
+# Named outfits for {outfit} / {outfit:name} placeholders in queue prompts.
+# A prompt containing {outfit} expands to outfits.default before generation.
+# NOTE: training images mostly used a WHITE camisole (7 of 47 captions) — if you
+# meant a black one, edit this. 17 of 47 training images are nude, so this
+# default is best-effort from the clothed images.
+outfits:
+  default: "white camisole, black shorts, choker, harness, bracelet"

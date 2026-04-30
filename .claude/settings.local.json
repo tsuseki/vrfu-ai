@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e \"require\\('docx'\\)\")",
+      "WebFetch(domain:rentry.org)",
+      "Read(//c/Programs/ComfyUI/models/loras/**)",
+      "Read(//c/Programs/ComfyUI/models/checkpoints/**)",
+      "Bash(mkdir -p \"c:/Programs/ComfyUI/models/loras/characters\")",
+      "Bash(mkdir -p \"c:/Programs/ComfyUI/models/loras/styles\")",
+      "Bash(rmdir \"c:/Programs/ComfyUI/models/loras/characters\")",
+      "Bash(rmdir \"c:/Programs/ComfyUI/models/loras/styles\")",
+      "Read(//c/Programs/ComfyUI/**)",
+      "Bash(python3 \"<repo>/write_captions.py\")",
+      "Bash(python write_captions.py)",
+      "Bash(powershell -Command \"Get-Process python -ErrorAction SilentlyContinue | Stop-Process -Force\")",
+      "Bash(C:/Programs/ai-toolkit/venv/Scripts/python.exe server.py)",
+      "Bash(curl -s http://localhost:8765/api/characters)",
+      "Bash(curl -s \"http://localhost:8765/api/images?character=tsu_chocola&page=1&per_page=3\")",
+      "Bash(curl -s \"http://localhost:8765/api/stats?character=tsu_chocola\")",
+      "Bash(curl -s -X POST http://localhost:8765/api/vote -H \"Content-Type: application/json\" -d \"{\\\\\"character\\\\\":\\\\\"tsu_chocola\\\\\",\\\\\"stem\\\\\":\\\\\"003_morning-stretch\\\\\",\\\\\"vote_type\\\\\":\\\\\"love\\\\\",\\\\\"value\\\\\":true}\")"
+    ]
+  }
+}

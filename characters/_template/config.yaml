@@ -1,0 +1,35 @@
+# ──────────────────────────────────────────────────────────
+# Character config — __CHARACTER_NAME__
+# Fill in the placeholders below before training or generating.
+# See docs/ADD_NEW_CHARACTER.md for the step-by-step setup guide.
+# ──────────────────────────────────────────────────────────
+
+character_name: __CHARACTER_NAME__
+trigger_word:   "__TRIGGER_WORD__"
+
+# Auto-prepended to every prompt at generation time. Keep tight (~10 tags).
+# These are the visual features that should always be present for this
+# character. Don't repeat what the trigger word already implies.
+# Example (tsu_chocola): "1girl, solo, fox girl, black fox ears, black hair, red eyes, facial mark"
+character_tags: "1girl, solo, __VISUAL_TAGS__"
+
+# Base SDXL checkpoint. Repo-relative — drop the .safetensors into checkpoints/.
+# See docs/install.md for download instructions.
+checkpoint: "checkpoints/waiIllustriousSDXL_v170.safetensors"
+
+# Your character's LoRA. Doesn't exist yet — created when you train.
+character_lora:        "loras/__CHARACTER__/__CHARACTER__.safetensors"
+character_lora_weight: 0.8
+
+extra_loras: []
+
+sampler: euler_a
+
+# Named outfits. Reference these in queue prompts as {outfit} (default) or
+# {outfit:name}. generate.py expands the placeholder into the tag bundle.
+# Example outfit (tsu_chocola): "white camisole, black shorts, black cardigan, off shoulder"
+outfits:
+  default: "__DEFAULT_OUTFIT_TAGS__"
+  # Add more named outfits here as you discover them. For example:
+  # bikini:  "white bikini"
+  # winter:  "black sweater, oversized sweater, knit cap"

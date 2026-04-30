@@ -1,0 +1,27 @@
+# ──────────────────────────────────────────────────────────
+# Character config — Cocoa Mizu
+# Used at GENERATION time. The LoRA path below is where ai-toolkit
+# will write the trained weights (after training_config.yaml is run).
+# ──────────────────────────────────────────────────────────
+
+character_name: Cocoa Mizu
+trigger_word: "cocoa mizu"
+
+# Auto-prepended to every prompt — tags from the training captions
+character_tags: "1girl, solo, animal ears, black animal ears, kemonomimi, white inner ear fur, multicolored hair with white and blue streaks, blue ahoge, blue eyes, long fluffy tail with blue and white stripes, black tail"
+
+checkpoint: "checkpoints/waiIllustriousSDXL_v170.safetensors"
+
+# Trained LoRA. Doesn't exist yet — will be created when you run training.
+character_lora: "loras/cocoa_mizu/cocoa_mizu.safetensors"
+character_lora_weight: 0.8
+
+extra_loras: []
+
+sampler: euler_a
+
+# Named outfits for {outfit} / {outfit:name} placeholders in queue prompts.
+# A prompt containing {outfit} expands to outfits.default before generation.
+# Add new named outfits below as needed (gym, swimsuit, formal, etc).
+outfits:
+  default: "black sports bra, white asymmetric jacket, off shoulder, black shorts, black thigh-high socks, asymmetric stockings, blue and white sneakers, thigh strap, black collar with heart pendant, harness, arm cuffs"

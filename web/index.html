@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>vrfu-ai</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <div class="brand">🦊 vrfu-ai</div>
+  <nav class="pages">
+    <button class="page-btn active" data-page="generation">⚙️ Generation</button>
+    <button class="page-btn"        data-page="review">🖼️ Review</button>
+    <button class="page-btn"        data-page="activity">📜 Activity</button>
+    <button class="page-btn"        data-page="docs">📖 Docs</button>
+  </nav>
+  <div class="controls">
+    <label>Character
+      <img id="character-thumb" class="char-thumb" alt="" src="">
+      <select id="character"></select>
+    </label>
+    <button id="add-character" title="Scaffold a new character from the template">➕ New</button>
+  </div>
+</header>
+
+<!-- ─── Add character modal ─────────────────────────────────────────────── -->
+<div id="modal-add-character" class="modal hidden">
+  <div class="modal-card">
+    <h2>New character</h2>
+    <p class="muted">
+      Creates an empty character folder from the template. After clicking
+      Create, drop training images into <code>characters/&lt;name&gt;/training/</code>,
+      caption them, edit <code>config.yaml</code>, then click 🎓 Train LoRA.
+      See <a href="/docs/ADD_NEW_CHARACTER.md" target="_blank">the setup guide</a> for the full flow.
+    </p>
+    <label class="modal-field">
+      Name <span class="muted">(lowercase, a–z 0–9 _, e.g. <code>my_character</code>)</span>
+      <input type="text" id="add-character-name" autocomplete="off" placeholder="my_character">
+    </label>
+    <div id="add-character-error" class="modal-error hidden"></div>
+    <div class="modal-actions">
+      <button id="add-character-cancel">Cancel</button>
+      <button id="add-character-create" class="primary">Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── Generation page ──────────────────────────────────────────────── -->
+<section id="page-generation" class="page">
+  <div class="run-banner" id="run-banner">
+    <div class="run-banner-row">
+      <button id="run-start"     class="run-btn primary">▶️ Start run</button>
+      <button id="run-upscale"   class="run-btn">🔼 Upscale liked</button>
+      <button id="run-train"     class="run-btn">🎓 Train LoRA</button>
+      <button id="run-stop"      class="run-btn danger hidden">⏹ Stop</button>
+      <label id="chain-toggle-wrap" class="chain-toggle hidden">
+        <input type="checkbox" id="chain-after-upscale">
+        ⛓ Auto-start gen after upscale
+      </label>
+      <label id="chain-train-toggle-wrap" class="chain-toggle hidden">
+        <input type="checkbox" id="chain-after-training">
+        ⛓ Auto-start gen after training
+      </label>
+      <span id="run-status" class="run-status">Idle</span>
+      <span id="run-eta" class="run-eta"></span>
+    </div>
+    <div class="run-progress-wrap">
+      <div id="run-progress" class="run-progress"></div>
+    </div>
+    <div class="run-detail">
+      <div class="run-current"><strong>Current:</strong> <span id="run-current-label">—</span></div>
+      <img id="run-preview" class="run-preview hidden" alt="latest image">
+    </div>
+    <details class="run-log-details">
+      <summary>📋 log tail</summary>
+      <pre id="run-log" class="run-log"></pre>
+    </details>
+  </div>
+
+  <div class="model-info" id="model-info">
+    <span class="model-info-label">Model:</span> <span id="model-name" class="mono">—</span>
+    <span class="model-info-sep">·</span>
+    <span class="model-info-label">LoRA:</span> <span id="lora-name" class="mono">—</span>
+    <span class="model-info-sep">·</span>
+    <span class="model-info-label">Trigger:</span> <span id="trigger-name" class="mono">—</span>
+  </div>
+
+  <div class="queue-toolbar">
+    <h2>Queue (<span id="queue-count">0</span>)</h2>
+    <button id="queue-add">➕ Add prompt</button>
+    <button id="queue-shuffle" title="Randomize the order of pending prompts">🔀 Shuffle</button>
+    <button id="queue-import">📥 Import YAML</button>
+    <button id="queue-export">📤 Export YAML</button>
+    <button id="queue-clear" class="danger-btn">🗑 Clear queue</button>
+  </div>
+  <div class="queue-table-wrap">
+    <table class="queue-table">
+      <thead>
+        <tr><th>#</th><th>Label</th><th>Dimensions</th><th>Prompt</th><th></th></tr>
+      </thead>
+      <tbody id="queue-tbody"></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ─── Review page ──────────────────────────────────────────────────── -->
+<section id="page-review" class="page hidden">
+  <nav class="tabs">
+    <button class="tab active" data-view="output">📥 New</button>
+    <button class="tab"        data-view="liked">❤️ Liked</button>
+    <button class="tab"        data-view="bookmarks">🔖 Bookmarks</button>
+    <button class="tab"        data-view="archive">🗄️ Archive</button>
+  </nav>
+  <div class="controls subcontrols">
+    <label class="search-wrap">🔎
+      <input id="search" type="search" placeholder="Search label / prompt / tag…" autocomplete="off">
+    </label>
+    <label id="batch-wrap">Batch
+      <select id="batch"><option value="all">All time</option></select>
+    </label>
+    <label>Artist
+      <select id="artist"><option value="all">All artists</option></select>
+    </label>
+    <label>Filter
+      <select id="filter">
+        <option value="all">All</option>
+        <option value="unvoted">Unvoted</option>
+        <option value="any-positive">Any positive vote</option>
+        <option value="super_liked">💜 Super liked</option>
+        <option value="loved">❤️ Loved</option>
+        <option value="liked">👍 Liked</option>
+        <option value="bookmark">🔖 Bookmarked</option>
+        <option value="style">🎨 Style liked</option>
+        <option value="prompt">📍 Prompt liked</option>
+        <option value="pose">🤸 Pose liked</option>
+        <option value="outfit">👗 Outfit liked</option>
+        <option value="anatomy">⚠️ Anatomy issue</option>
+        <option value="disliked">👎 Disliked</option>
+        <option value="comment">💬 Has comment</option>
+      </select>
+    </label>
+    <button id="toggle-upscaled" title="Show upscaled (2K) versions when available" class="toggle-btn active">✨ 2K</button>
+    <button id="organize"        class="view-only-output hidden" title="Move output images to Liked or Archive based on votes">📦 Organize</button>
+    <button id="upscale-btn"     class="view-only-liked  hidden" title="Upscale all images in liked/ to 2K">🔼 Upscale liked</button>
+    <button id="refresh">🔄 Refresh</button>
+    <button id="toggle-stats">📊 Stats</button>
+  </div>
+
+  <section id="stats" class="stats hidden">
+    <div class="stats-grid">
+      <div class="stat-card"><h3>Counts</h3><ul id="stat-counts"></ul></div>
+      <div class="stat-card"><h3>Top favorite artists</h3><ol id="stat-top-artists"></ol></div>
+      <div class="stat-card"><h3>Top loved categories</h3><ol id="stat-top-categories"></ol></div>
+    </div>
+  </section>
+
+  <div id="view-label" class="view-label"></div>
+  <section id="grid" class="grid"></section>
+  <nav id="pagination" class="pagination"></nav>
+</section>
+
+<!-- ─── Activity page ───────────────────────────────────────────────── -->
+<section id="page-activity" class="page hidden">
+  <div class="controls subcontrols">
+    <label>Event
+      <select id="activity-filter">
+        <option value="">All events</option>
+        <option value="generated">generated</option>
+        <option value="voted">voted</option>
+        <option value="moved">moved</option>
+        <option value="organize_clicked">organize_clicked</option>
+        <option value="upscaled">upscaled</option>
+        <option value="batch_started">batch_started</option>
+        <option value="batch_ended">batch_ended</option>
+        <option value="reference_built">reference_built</option>
+        <option value="queue_added">queue_added</option>
+        <option value="queue_deleted">queue_deleted</option>
+        <option value="queue_imported">queue_imported</option>
+      </select>
+    </label>
+    <button id="activity-refresh">🔄 Refresh</button>
+    <span class="muted">latest 200 events</span>
+  </div>
+  <ul id="activity-list" class="activity-list"></ul>
+</section>
+
+<!-- ─── Docs page ───────────────────────────────────────────────────── -->
+<section id="page-docs" class="page hidden">
+  <div class="docs-layout">
+    <aside id="docs-sidebar" class="docs-sidebar"></aside>
+    <article id="docs-content" class="docs-content">
+      <p class="muted">Pick a doc on the left.</p>
+    </article>
+  </div>
+</section>
+
+<!-- marked.js (CDN) — renders markdown to HTML in the docs viewer -->
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+<!-- ─── Lightbox ────────────────────────────────────────────────────── -->
+<div id="lightbox" class="lightbox hidden">
+  <div class="lightbox-inner">
+    <img id="lightbox-img" alt="">
+    <button id="lightbox-close">✕</button>
+  </div>
+</div>
+
+<!-- ─── Floating tool widget (upscale progress) ──────────────────── -->
+<div id="tool-widget" class="tool-widget hidden">
+  <div class="tool-widget-header">
+    <span id="tool-widget-icon">🔼</span>
+    <span id="tool-widget-name">Upscale</span>
+    <span id="tool-widget-status" class="muted"></span>
+    <button id="tool-widget-stop" class="tool-widget-stop" title="Stop">⏹</button>
+  </div>
+  <div class="tool-widget-progress-wrap">
+    <div id="tool-widget-progress" class="tool-widget-progress"></div>
+  </div>
+  <div id="tool-widget-current" class="tool-widget-current">—</div>
+</div>
+
+<!-- ─── Toast ───────────────────────────────────────────────────────── -->
+<div id="toast" class="toast hidden"></div>
+
+<!-- ─── Modals ──────────────────────────────────────────────────────── -->
+<div id="modal-add" class="modal hidden">
+  <div class="modal-inner wide">
+    <h3 id="modal-add-title">Add prompt</h3>
+
+    <label>Label
+      <input id="add-label" type="text" placeholder="auto-named if blank">
+    </label>
+
+    <label>Prompt (comma-separated tags)
+      <textarea id="add-prompt" rows="5" placeholder="artist:hiten, 1girl, solo, heart hands, ..."></textarea>
+    </label>
+
+    <div class="quick-pick">
+      <div class="quick-pick-row">
+        <span class="quick-pick-label">Artists:</span>
+        <span id="quick-artists" class="quick-chips"></span>
+      </div>
+      <div class="quick-pick-row">
+        <span class="quick-pick-label">Outfit:</span>
+        <span id="quick-outfits" class="quick-chips"></span>
+      </div>
+      <div class="quick-pick-row">
+        <span class="quick-pick-label">Popular:</span>
+        <span id="quick-popular" class="quick-chips"></span>
+      </div>
+      <div class="quick-pick-row">
+        <span class="quick-pick-label">Mood:</span>
+        <span class="quick-chips">
+          <button class="chip-btn" data-tag="bright smile">smile</button>
+          <button class="chip-btn" data-tag="blush">blush</button>
+          <button class="chip-btn" data-tag="wink">wink</button>
+          <button class="chip-btn" data-tag="laughing">laugh</button>
+          <button class="chip-btn" data-tag="shy expression">shy</button>
+          <button class="chip-btn" data-tag="mischievous smirk">smirk</button>
+          <button class="chip-btn" data-tag="sparkling eyes">sparkles</button>
+          <button class="chip-btn" data-tag="surprised, wide eyes">surprised</button>
+        </span>
+      </div>
+      <div class="quick-pick-row">
+        <span class="quick-pick-label">Pose:</span>
+        <span class="quick-chips">
+          <button class="chip-btn" data-tag="heart hands">heart hands</button>
+          <button class="chip-btn" data-tag="peace sign">peace sign</button>
+          <button class="chip-btn" data-tag="hand on hip">hand on hip</button>
+          <button class="chip-btn" data-tag="hands behind back">hands behind</button>
+          <button class="chip-btn" data-tag="looking at viewer">look at viewer</button>
+          <button class="chip-btn" data-tag="lying on bed">lying on bed</button>
+          <button class="chip-btn" data-tag="sitting">sitting</button>
+        </span>
+      </div>
+      <div class="quick-pick-row">
+        <span class="quick-pick-label">Framing:</span>
+        <span class="quick-chips">
+          <button class="chip-btn" data-tag="upper body">upper body</button>
+          <button class="chip-btn" data-tag="cowboy shot">cowboy shot</button>
+          <button class="chip-btn" data-tag="full body">full body</button>
+          <button class="chip-btn" data-tag="close-up">close-up</button>
+          <button class="chip-btn" data-tag="from above">from above</button>
+          <button class="chip-btn" data-tag="foot focus">foot focus</button>
+        </span>
+      </div>
+      <div class="quick-pick-row">
+        <span class="quick-pick-label">Background:</span>
+        <span class="quick-chips">
+          <button class="chip-btn" data-tag="simple background, white background">plain white</button>
+          <button class="chip-btn" data-tag="bedroom">bedroom</button>
+          <button class="chip-btn" data-tag="beach, ocean, sunset">beach</button>
+          <button class="chip-btn" data-tag="forest path">forest</button>
+          <button class="chip-btn" data-tag="cherry blossom tree">sakura</button>
+          <button class="chip-btn" data-tag="hot spring, steam">onsen</button>
+          <button class="chip-btn" data-tag="city lights, rooftop">rooftop</button>
+        </span>
+      </div>
+    </div>
+
+    <div class="resolution-picker">
+      <label class="resolution-label">Resolution</label>
+      <div class="radio-group">
+        <label class="radio-option"><input type="radio" name="resolution" value="square" checked>⬛ Square <span class="muted">1024×1024</span></label>
+        <label class="radio-option"><input type="radio" name="resolution" value="portrait">📱 Portrait <span class="muted">832×1216</span></label>
+        <label class="radio-option"><input type="radio" name="resolution" value="landscape">🖼️ Landscape <span class="muted">1216×832</span></label>
+      </div>
+    </div>
+
+    <div class="modal-buttons">
+      <button id="add-cancel">Cancel</button>
+      <button id="add-save" class="primary">Add to queue</button>
+    </div>
+  </div>
+</div>
+
+<div id="modal-import" class="modal hidden">
+  <div class="modal-inner wide">
+    <h3>Import YAML</h3>
+    <p class="muted">Paste a YAML list of prompts (each with label + prompt). Will be appended to the current queue.</p>
+    <textarea id="import-yaml" rows="14" placeholder="- label: my-prompt&#10;  prompt: ...&#10;  width: 832&#10;  height: 1216"></textarea>
+    <div class="modal-buttons">
+      <button id="import-cancel">Cancel</button>
+      <button id="import-save" class="primary">Import</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── Card template (used in Review tabs) ────────────────────────── -->
+<template id="card-tpl">
+  <article class="card" data-stem="">
+    <div class="thumb-wrap">
+      <img class="thumb" loading="lazy" alt="">
+      <span class="card-id"></span>
+      <span class="location-badge"></span>
+    </div>
+    <div class="card-body">
+      <h4 class="label"></h4>
+      <div class="tags artist-tags"></div>
+      <div class="tags scene-tags"></div>
+      <div class="votes primary-votes">
+        <button data-vote="super_like" title="Super like — favorite of favorites" class="super-like-btn">💜</button>
+        <button data-vote="love"       title="Love">❤️</button>
+        <button data-vote="like"       title="Like">👍</button>
+        <button data-vote="bookmark"   title="Bookmark — save for later, no upscale, no archive" class="bookmark-btn">🔖</button>
+        <span class="vote-sep"></span>
+        <button class="card-menu-btn" title="More actions">⋮</button>
+      </div>
+      <div class="card-actions">
+        <span class="upscale-status muted" title="Has 2K upscale">✨</span>
+        <button class="card-btn open-original-btn" title="Open original (1K) in lightbox">🔍 1K</button>
+        <button class="card-btn remix-btn" title="Remix this prompt — opens the add-to-queue dialog with everything pre-filled">➕ Remix</button>
+      </div>
+      <div class="card-menu hidden">
+        <div class="card-menu-row">
+          <span class="menu-label">What did you like?</span>
+          <button data-vote="style"  title="Style/artist">🎨 style</button>
+          <button data-vote="prompt" title="Scene/setting">📍 location</button>
+          <button data-vote="pose"   title="Pose">🤸 pose</button>
+          <button data-vote="outfit" title="Outfit">👗 clothes</button>
+        </div>
+        <div class="card-menu-row">
+          <span class="menu-label">Issues</span>
+          <button data-vote="dislike"       title="Dislike — won't repeat" class="negative danger-btn">👎 skip</button>
+          <button data-vote="anatomy_issue" title="Anatomy issue" class="negative">⚠️ bad anatomy</button>
+        </div>
+        <div class="card-menu-row">
+          <button class="upscale-now-btn" title="Run SDXL hires-fix on just this image">🔼 Upscale now</button>
+        </div>
+        <details class="prompt-details" open>
+          <summary>📝 prompt</summary>
+          <div class="prompt-box"></div>
+        </details>
+        <textarea class="comment" placeholder="Comment…" rows="2"></textarea>
+      </div>
+    </div>
+  </article>
+</template>
+
+<script src="app.js"></script>
+</body>
+</html>

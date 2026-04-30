@@ -1,0 +1,11 @@
+# Main pipeline extras — installed on top of ai-toolkit's requirements.txt by setup.bat.
+# These are deps used by scripts/ and web/ but NOT pulled in by ai-toolkit itself.
+
+# Prompt weighting + long-prompt support (used by generate.py and upscale.py via Compel)
+compel>=2.3.1
+
+# YAML parser used by every script (ai-toolkit also depends on it but pinning here too)
+PyYAML>=6.0
+
+# Image I/O for upscaler / web image serving (ai-toolkit also depends on it)
+Pillow>=10.0

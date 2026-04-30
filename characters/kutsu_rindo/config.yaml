@@ -1,0 +1,35 @@
+# ──────────────────────────────────────────────────────────
+# Character config — Kutsu Rindo
+# Used at GENERATION time. The LoRA path below is where ai-toolkit
+# will write the trained weights (after training_config.yaml is run).
+# ──────────────────────────────────────────────────────────
+
+character_name: Kutsu Rindo
+trigger_word: "kutsu rindo"
+
+# Auto-prepended to every prompt — derived from training caption frequency.
+# Note: source training images are 3D VRChat renders. The LoRA learns the
+# identity bound to "3d"; at generation time, ADD "2d, anime coloring,
+# flat color" to your prompt's negative or positive to steer toward 2D anime.
+character_tags: "1girl, solo, fox girl, kemonomimi, fox ears, low twin ponytails, long blonde hair, purple eyes, red whisker markings, red eyeshadow, red lipstick, thick red blush, long fluffy blonde fox tail"
+
+checkpoint: "checkpoints/waiIllustriousSDXL_v170.safetensors"
+
+# Trained LoRA. Doesn't exist yet — created when you run training.
+character_lora: "loras/kutsu_rindo/kutsu_rindo.safetensors"
+character_lora_weight: 0.8
+
+extra_loras: []
+
+sampler: euler_a
+
+# Named outfits for {outfit} / {outfit:name} placeholders in queue prompts.
+# A prompt containing {outfit} expands to outfits.default before generation.
+# Default = miko/shrine maiden — most-photographed in training (12 of 36 captions).
+# Other named outfits cover the secondary recurring outfits in the dataset.
+outfits:
+  default: "(miko:1.2), shrine maiden, white kimono, (red hakama:1.3), detached sleeves, wide sleeves"
+  cutie:   "red baseball cap, FATAL CUTIE cap, hat, white crop top, denim micro shorts, arm bandages, leg warmers, red sneakers, midriff, navel"
+  sweater: "cream knit sweater, oversized sweater, off shoulder, white panties, black thigh-high socks"
+  sailor:  "white sailor top, navy blue collar, red ribbon, navy blue pleated skirt, black thigh-high socks, black loafers"
+  santa:   "red Santa dress, red velvet dress, white fur trim, Santa hat"
