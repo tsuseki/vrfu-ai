@@ -15,6 +15,7 @@ const state = {
   total:   0,
   pages:   1,
   showUpscaled: localStorage.getItem("showUpscaled") !== "false",  // default: true
+  upscaleScale: Math.max(1.0, Math.min(3.0, parseFloat(localStorage.getItem("upscaleScale")) || 2.0)),
   search: "",
   // Run polling
   runPoll: null,
@@ -504,9 +505,9 @@ async function startRun() {
   pollRunStatus();
 }
 async function startUpscaleFromBanner() {
-  const r = await postJSON("/api/upscale", { character: state.character });
+  const r = await postJSON("/api/upscale", { character: state.character, scale: state.upscaleScale });
   if (!r.ok) { toast("Cannot start: " + r.err); return; }
-  toast("Upscale started");
+  toast(`Upscale started @ ${state.upscaleScale}×`);
   _activeJob = "upscale";
   pollRunStatus();
 }
@@ -936,7 +937,7 @@ function renderGrid(images) {
         upscaleNowBtn.textContent = "⏳ Upscaling…";
         try {
           const r = await postJSON("/api/upscale-one", {
-            character: state.character, stem: img.stem,
+            character: state.character, stem: img.stem, scale: state.upscaleScale,
           });
           if (r.ok) {
             toast(`🔼 Upscaling ${img.stem} — see Generation page for progress`);
@@ -1060,9 +1061,9 @@ async function organizeOutput() {
 }
 async function startUpscale() {
   // Trigger upscale, then jump to Generation page so the user sees the unified banner
-  const r = await postJSON("/api/upscale", { character: state.character });
+  const r = await postJSON("/api/upscale", { character: state.character, scale: state.upscaleScale });
   if (r.ok) {
-    toast("🔼 Upscale started — see Generation page");
+    toast(`🔼 Upscale started @ ${state.upscaleScale}× — see Generation page`);
     switchPage("generation");
   } else {
     toast("❌ " + r.err);
@@ -1212,6 +1213,29 @@ $("#toggle-upscaled").addEventListener("click", () => {
 });
 $("#organize").addEventListener("click", organizeOutput);
 $("#upscale-btn").addEventListener("click", startUpscale);
+
+// Two number inputs (one in the Generation banner, one in the Review toolbar)
+// stay in sync with state.upscaleScale + localStorage. Anything reading
+// state.upscaleScale at click time picks up the latest value.
+function syncUpscaleScaleInputs() {
+  document.querySelectorAll(".upscale-scale").forEach(el => {
+    el.value = state.upscaleScale.toFixed(2).replace(/\.?0+$/, "");
+  });
+}
+function applyUpscaleScale(raw) {
+  let v = parseFloat(raw);
+  if (!Number.isFinite(v)) v = 2.0;
+  v = Math.max(1.0, Math.min(3.0, v));
+  // Round to two decimals to keep persisted values clean
+  v = Math.round(v * 100) / 100;
+  state.upscaleScale = v;
+  localStorage.setItem("upscaleScale", String(v));
+  syncUpscaleScaleInputs();
+}
+document.querySelectorAll(".upscale-scale").forEach(el => {
+  el.addEventListener("change", e => applyUpscaleScale(e.target.value));
+});
+syncUpscaleScaleInputs();
 // Initial visibility (default tab is New / output)
 updateTabActionButtons();
 $("#toggle-stats").addEventListener("click", () => {

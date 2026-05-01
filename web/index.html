@@ -51,7 +51,10 @@
   <div class="run-banner" id="run-banner">
     <div class="run-banner-row">
       <button id="run-start"     class="run-btn primary">▶️ Start run</button>
-      <button id="run-upscale"   class="run-btn">🔼 Upscale liked</button>
+      <span class="upscale-group">
+        <button id="run-upscale" class="run-btn">🔼 Upscale liked</button>
+        <label class="upscale-scale-label" title="Upscale factor (1.0–3.0). 1.5 fits a 16 GB card, 2.0 needs ~20 GB.">×<input id="upscale-scale-banner" class="upscale-scale" type="number" min="1.0" max="3.0" step="0.05"></label>
+      </span>
       <button id="run-train"     class="run-btn">🎓 Train LoRA</button>
       <button id="run-stop"      class="run-btn danger hidden">⏹ Stop</button>
       <label id="chain-toggle-wrap" class="chain-toggle hidden">
@@ -142,7 +145,10 @@
     </label>
     <button id="toggle-upscaled" title="Show upscaled (2K) versions when available" class="toggle-btn active">✨ 2K</button>
     <button id="organize"        class="view-only-output hidden" title="Move output images to Liked or Archive based on votes">📦 Organize</button>
-    <button id="upscale-btn"     class="view-only-liked  hidden" title="Upscale all images in liked/ to 2K">🔼 Upscale liked</button>
+    <span class="upscale-group view-only-liked hidden">
+      <button id="upscale-btn" title="Upscale all images in liked/">🔼 Upscale liked</button>
+      <label class="upscale-scale-label" title="Upscale factor (1.0–3.0). 1.5 fits a 16 GB card, 2.0 needs ~20 GB.">×<input id="upscale-scale-review" class="upscale-scale" type="number" min="1.0" max="3.0" step="0.05"></label>
+    </span>
     <button id="refresh">🔄 Refresh</button>
     <button id="toggle-stats">📊 Stats</button>
   </div>

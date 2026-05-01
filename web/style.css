@@ -145,6 +145,46 @@ button.danger-btn:hover { border-color: var(--danger); }
 .run-btn.primary { background: var(--good); border-color: var(--good); color: #fff; }
 .run-btn.primary:hover { filter: brightness(1.1); }
 .run-btn.danger  { background: var(--danger); border-color: var(--danger); color: #fff; }
+
+/* ── Upscale-with-scale picker group ─────────────────────────────── */
+.upscale-group {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 0;
+}
+.upscale-group .run-btn,
+.upscale-group #upscale-btn {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  margin-right: 0;
+}
+.upscale-scale-label {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px;
+  background: var(--bg-2, #2a2a2a);
+  border: 1px solid var(--border, #444);
+  border-left: none;
+  border-top-right-radius: 6px;
+  border-bottom-right-radius: 6px;
+  color: var(--fg-dim, #888);
+  font-size: 13px;
+  cursor: text;
+}
+.upscale-scale-label input.upscale-scale {
+  width: 48px;
+  margin-left: 4px;
+  padding: 4px 4px;
+  background: transparent;
+  border: none;
+  color: var(--fg, #ddd);
+  font-size: 13px;
+  text-align: center;
+  outline: none;
+}
+.upscale-scale-label input.upscale-scale::-webkit-inner-spin-button {
+  opacity: 0.4;
+}
 .run-status { font-size: 14px; font-weight: 600; }
 .run-eta    { color: var(--fg-dim); font-size: 12px; }
 .run-progress-wrap {
