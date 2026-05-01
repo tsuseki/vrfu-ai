@@ -63,7 +63,7 @@ def _patch_peft_torchao_check() -> None:
         pass
 _patch_peft_torchao_check()
 
-from compel import Compel, ReturnedEmbeddingsType
+from compel import CompelForSDXL
 from diffusers import StableDiffusionXLImg2ImgPipeline, EulerAncestralDiscreteScheduler
 from PIL import Image
 
@@ -158,12 +158,13 @@ def build_pipe(cfg: dict):
     else:
         pipe.to("cuda")
         pipe.vae.enable_tiling()
-    compel = Compel(
-        tokenizer=[pipe.tokenizer, pipe.tokenizer_2],
-        text_encoder=[pipe.text_encoder, pipe.text_encoder_2],
-        returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
-        requires_pooled=[False, True],
-    )
+    # CompelForSDXL hooks into the pipeline's offload mechanism so encoders
+    # used here move with the rest of the pipeline. The old Compel(...) ctor
+    # takes direct refs to text_encoder objects and breaks under
+    # enable_model_cpu_offload (encoders bounce to CPU but Compel keeps
+    # feeding CUDA token tensors → "Expected all tensors to be on the
+    # same device" errors that cost 10s/image in retry/recovery).
+    compel = CompelForSDXL(pipe)
     print("Pipeline ready (with Compel weighting).\n")
     return pipe, compel
 
@@ -186,15 +187,16 @@ def upscale_one(pipe, compel, png: Path, out_path: Path, entry: dict,
     gen = torch.Generator("cuda").manual_seed(seed) if seed else None
     torch.cuda.empty_cache()
 
-    # Encode prompts via Compel for proper (term:1.5) weighting + long-prompt support
-    pos_cond, pos_pool = compel(prompt or "")
-    neg_cond, neg_pool = compel(negative or "")
-    pos_cond, neg_cond = compel.pad_conditioning_tensors_to_same_length([pos_cond, neg_cond])
+    # Encode prompts via CompelForSDXL — single call returns matched-length
+    # positive + negative embeddings with proper (term:1.5) weighting and
+    # long-prompt chunking. The wrapper handles offloaded text encoders.
+    enc = compel(main_prompt=prompt or "", negative_prompt=negative or "")
 
     t0 = time.monotonic()
     result = pipe(
-        prompt_embeds=pos_cond, pooled_prompt_embeds=pos_pool,
-        negative_prompt_embeds=neg_cond, negative_pooled_prompt_embeds=neg_pool,
+        prompt_embeds=enc.embeds, pooled_prompt_embeds=enc.pooled_embeds,
+        negative_prompt_embeds=enc.negative_embeds,
+        negative_pooled_prompt_embeds=enc.negative_pooled_embeds,
         image=tgt, strength=DENOISE, num_inference_steps=STEPS,
         guidance_scale=GUIDANCE, generator=gen,
     ).images[0]
