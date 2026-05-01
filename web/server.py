@@ -907,9 +907,21 @@ def tail_tool_log(tool_name: str, n: int = 30) -> str:
 
 # ─── HTTP handler ────────────────────────────────────────────────────────────
 class Handler(BaseHTTPRequestHandler):
+    # Endpoints the frontend polls every couple seconds. Logging them spams
+    # the cmd window so badly that real requests (page loads, button clicks,
+    # errors) get drowned out. Suppress them — everything else still logs.
+    _QUIET_PATH_PREFIXES = (
+        "/api/run/status",
+        "/api/run/log",
+        "/api/tool/status",
+    )
+
     def log_message(self, fmt, *args):
-        if "/api/" in self.path or self.path == "/":
-            sys.stderr.write(f"[{datetime.now().strftime('%H:%M:%S')}] {self.command} {self.path}\n")
+        path = self.path
+        if any(path.startswith(p) for p in self._QUIET_PATH_PREFIXES):
+            return
+        if "/api/" in path or path == "/":
+            sys.stderr.write(f"[{datetime.now().strftime('%H:%M:%S')}] {self.command} {path}\n")
 
     # ── helpers ──────────────────────────────────────────────────────────────
     def _send_json(self, payload, status=200):
