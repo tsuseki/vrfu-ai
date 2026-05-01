@@ -2,6 +2,8 @@
 
 A curated reference of Danbooru artist tags known to work well with Illustrious-family checkpoints (waiIllustriousSDXL, NoobAI, etc.). Use this to plan next batches.
 
+> ⚠️ **This is the personal taste of tsuseki**, not an authoritative ranking. Tiers reflect what tsuseki votes ❤️/👍 on for his own characters and aesthetic preferences (cozy/casual/feet-focused, anime coloring, soft cute). Your taste will differ — treat the lists as a starting point, vote on your own outputs, and re-tier from your own data. The website's Stats panel surfaces your per-artist hit rate.
+
 > Format used in prompts: `artist:NAME` — e.g. `artist:hiten`, `artist:wlop`. Going forward we use **one artist per prompt** so each like/dislike maps cleanly to one artist.
 
 ---
