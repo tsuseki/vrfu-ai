@@ -213,6 +213,11 @@ async function loadQueue() {
     const dim = (entry.width || 1024) + "×" + (entry.height || 1024);
     const promptTrunc = (entry.prompt || "").slice(0, 90)
       + ((entry.prompt || "").length > 90 ? "…" : "");
+    const negText  = entry.negative || "";
+    const negTrunc = negText.slice(0, 60) + (negText.length > 60 ? "…" : "");
+    const negDisplay = negText
+      ? `<span title="${escapeHTML(negText)}">${escapeHTML(negTrunc)}</span>`
+      : `<span class="muted" title="Uses the global default negative (BASE_NEGATIVE in generate.py)">— default —</span>`;
     const lbl = escapeHTML(entry.label);
     const isActive = entry.label === activeLabel;
     const idxLabel = isActive ? "▶️" : (idx + 1);
@@ -227,6 +232,7 @@ async function loadQueue() {
       <td class="mono">${lbl}${isActive ? ' <span class="active-badge">generating</span>' : ""}</td>
       <td class="muted">${dim}</td>
       <td class="prompt-cell" title="${escapeHTML(entry.prompt || "")}">${escapeHTML(promptTrunc)}</td>
+      <td class="prompt-cell">${negDisplay}</td>
       <td class="row-actions">
         ${topBtn}${upBtn}${downBtn}
         <button class="row-btn" data-action="edit"      data-label="${lbl}" title="Edit">✏️</button>
@@ -327,8 +333,9 @@ function addPromptModalOpen(prefill) {
   // prefill: { label?, prompt?, width?, height?, editingLabel? }   (seeds are always random)
   prefill = prefill || {};
   _editingLabel = prefill.editingLabel || null;
-  $("#add-label").value  = prefill.label  || "";
-  $("#add-prompt").value = prefill.prompt || "";
+  $("#add-label").value    = prefill.label    || "";
+  $("#add-prompt").value   = prefill.prompt   || "";
+  $("#add-negative").value = prefill.negative || "";
   // Pick resolution radio
   const res = resolutionFromDims(prefill.width, prefill.height);
   $$("#modal-add input[name=resolution]").forEach(r => r.checked = (r.value === res));
@@ -420,15 +427,16 @@ function populateQuickPopular() {
 }
 
 async function addPromptModalSave() {
-  const label  = $("#add-label").value.trim();
-  const prompt = $("#add-prompt").value.trim();
+  const label    = $("#add-label").value.trim();
+  const prompt   = $("#add-prompt").value.trim();
+  const negative = $("#add-negative").value.trim();
   if (!prompt) { toast("Prompt is required"); return; }
   const resVal = ($$("#modal-add input[name=resolution]:checked")[0] || {}).value || "square";
   const { w, h } = RESOLUTIONS[resVal];
 
   if (_editingLabel) {
     // UPDATE existing entry
-    const fields = { prompt, width: w, height: h };
+    const fields = { prompt, width: w, height: h, negative };
     if (label && label !== _editingLabel) fields.label = label;
     const r = await postJSON("/api/queue/update", {
       character: state.character,
@@ -454,6 +462,7 @@ async function addPromptModalSave() {
     width:     w,
     height:    h,
   };
+  if (negative) body.negative = negative;
   const r = await postJSON("/api/queue/add", body);
   toast(`Added "${r.label}"`);
   $("#modal-add").classList.add("hidden");

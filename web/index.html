@@ -104,7 +104,7 @@
   <div class="queue-table-wrap">
     <table class="queue-table">
       <thead>
-        <tr><th>#</th><th>Label</th><th>Dimensions</th><th>Prompt</th><th></th></tr>
+        <tr><th>#</th><th>Label</th><th>Dimensions</th><th>Prompt</th><th>Negative</th><th></th></tr>
       </thead>
       <tbody id="queue-tbody"></tbody>
     </table>
@@ -258,6 +258,10 @@
 
     <label>Prompt (comma-separated tags)
       <textarea id="add-prompt" rows="5" placeholder="artist:hiten, 1girl, solo, heart hands, ..."></textarea>
+    </label>
+
+    <label>Negative prompt <span class="muted">(optional — overrides the project default)</span>
+      <textarea id="add-negative" rows="3" placeholder="leave empty to use the global default (BASE_NEGATIVE in generate.py)"></textarea>
     </label>
 
     <div class="quick-pick">
