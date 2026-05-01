@@ -7,10 +7,11 @@
 
 setlocal
 
-:: Kill any existing process listening on 8765
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr "127.0.0.1:8765 .*LISTENING"') do (
-  taskkill /F /PID %%a >nul 2>&1
-)
+:: Kill any existing process listening on 127.0.0.1:8765 (a previous server we left behind).
+:: Using PowerShell because cmd's findstr treats spaces in patterns as logical OR — the
+:: previous regex-style version accidentally matched ALL listening processes and would
+:: kill anything with a TCP listener (Discord, Steam, etc.). Get-NetTCPConnection is exact.
+powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 8765 -LocalAddress 127.0.0.1 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }" >nul 2>&1
 
 cd /d "%~dp0web"
 start "" "http://localhost:8765"
