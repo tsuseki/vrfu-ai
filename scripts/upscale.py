@@ -145,17 +145,13 @@ def build_pipe(cfg: dict):
     print(f"Loading LoRA: {char_lora.name} @ {LORA_WEIGHT}")
     pipe.load_lora_weights(str(char_lora.parent), weight_name=char_lora.name, adapter_name="character")
     pipe.set_adapters(["character"], adapter_weights=[LORA_WEIGHT])
-    # Same VRAM strategy as generate.py: attention slicing (memory savings
-    # without the CompelForSDXL device-mismatch race that
-    # enable_model_cpu_offload causes). 16 GB users at high upscale
-    # scales can also drop to 1.5x or 1.25x via the website's scale picker.
+    # Same VRAM strategy as generate.py: just VAE slicing + tiling.
+    # 16 GB users hitting OOM at high upscale scales can drop to 1.4x
+    # or 1.25x via the website's scale picker. No device juggling, no
+    # Compel race, full GPU speed.
     pipe.to("cuda")
     pipe.enable_vae_slicing()
     pipe.vae.enable_tiling()
-    total_vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
-    if total_vram_gb < 20:
-        print(f"VRAM {total_vram_gb:.1f} GB — enabling attention slicing for memory headroom.")
-        pipe.enable_attention_slicing()
     # CompelForSDXL hooks into the pipeline's offload mechanism so encoders
     # used here move with the rest of the pipeline. The old Compel(...) ctor
     # takes direct refs to text_encoder objects and breaks under
