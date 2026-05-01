@@ -247,17 +247,27 @@ def load_pipeline(cfg: dict):
     pipe.set_adapters(adapter_names, adapter_weights=adapter_weights)
 
     # ── Memory strategy ──────────────────────────────────────────────────
-    # Just VAE slicing + tiling, which are pure compute-time tricks
-    # that reclaim the ~3-4 GB peak the VAE decode would otherwise want.
-    # No device juggling, no Compel races, full GPU speed.
+    # VAE slicing + tiling: pure compute-time tricks that reclaim the
+    # ~3-4 GB peak the VAE decode would otherwise want. No device juggling,
+    # no Compel races, full GPU speed.
     #
-    # 16 GB users: SDXL gen at 832x1216 peaks ~10-12 GB which fits with
-    # margin. If background apps (Discord, browser hardware accel, games)
-    # eat enough VRAM to push past the ceiling, close them. For upscale
-    # at high scales, drop to 1.4x or 1.25x via the website's scale picker.
+    # Attention slicing: only enabled below 20 GB total VRAM. SDXL at
+    # 1216x832 spikes to ~17 GB at the attention peak; on 16 GB cards that
+    # overflows into Sysmem Fallback (silent 40x slowdown). Slicing pays
+    # ~5% speed for ~3-5 GB of attention-peak headroom — keeps 16 GB cards
+    # in real VRAM. NOT enabled on >=20 GB cards because the speed cost
+    # is noticeable and unnecessary there.
+    #
+    # CPU offload (enable_model_cpu_offload) is NOT used — it on-demand
+    # swaps text encoders between CPU/GPU, which races with CompelForSDXL
+    # calling them at inference time → device-mismatch retry storm.
     pipe.to("cuda")
     pipe.enable_vae_slicing()
     pipe.enable_vae_tiling()
+    total_mib = torch.cuda.get_device_properties(0).total_memory // (1024 * 1024)
+    if total_mib < 20480:
+        pipe.enable_attention_slicing("auto")
+        print(f"Low-VRAM mode: attention slicing enabled ({total_mib:,} MiB total).")
     print("Pipeline ready.\n")
     img2img = StableDiffusionXLImg2ImgPipeline.from_pipe(pipe)
     return pipe, img2img

@@ -145,13 +145,19 @@ def build_pipe(cfg: dict):
     print(f"Loading LoRA: {char_lora.name} @ {LORA_WEIGHT}")
     pipe.load_lora_weights(str(char_lora.parent), weight_name=char_lora.name, adapter_name="character")
     pipe.set_adapters(["character"], adapter_weights=[LORA_WEIGHT])
-    # Same VRAM strategy as generate.py: just VAE slicing + tiling.
+    # Same VRAM strategy as generate.py: VAE slicing + tiling, plus
+    # attention slicing on <20 GB cards to keep the attention peak in
+    # real VRAM (otherwise Sysmem Fallback causes 40x slowdowns).
     # 16 GB users hitting OOM at high upscale scales can drop to 1.4x
     # or 1.25x via the website's scale picker. No device juggling, no
-    # Compel race, full GPU speed.
+    # Compel race, full GPU speed (attention slicing costs ~5%).
     pipe.to("cuda")
     pipe.enable_vae_slicing()
     pipe.vae.enable_tiling()
+    total_mib = torch.cuda.get_device_properties(0).total_memory // (1024 * 1024)
+    if total_mib < 20480:
+        pipe.enable_attention_slicing("auto")
+        print(f"Low-VRAM mode: attention slicing enabled ({total_mib:,} MiB total).")
     # CompelForSDXL hooks into the pipeline's offload mechanism so encoders
     # used here move with the rest of the pipeline. The old Compel(...) ctor
     # takes direct refs to text_encoder objects and breaks under
