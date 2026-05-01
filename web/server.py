@@ -597,21 +597,32 @@ def load_queue(character: str) -> list[dict]:
     return [e for e in raw if isinstance(e, dict)]
 
 
-def save_queue(character: str, entries: list[dict]) -> None:
-    """Atomic write so a crash mid-save can't leave a half-written file.
+# ThreadingHTTPServer means concurrent POSTs land on different threads;
+# rapid /api/queue/duplicate clicks (or two browser tabs) can race two
+# save_queue calls and produce a malformed file. One global lock
+# serialises all queue writes — saves are <10ms so contention is irrelevant.
+_queue_save_lock = threading.Lock()
 
-    Writes to <name>.yaml.tmp, then os.replace() onto the final path —
-    atomic on both Windows and POSIX. Prevents the "partial write =
-    permanently broken queue" failure mode.
+
+def save_queue(character: str, entries: list[dict]) -> None:
+    """Atomic + serialised write.
+
+    Concurrency: under _queue_save_lock so two threads can't race on the
+    same .tmp filename and produce a half-written file.
+
+    Atomicity: writes to <name>.yaml.tmp (per-thread unique via NamedTemporary
+    is unnecessary because the lock already serialises us), then os.replace()s
+    onto the final path. Atomic on Windows + POSIX.
     """
     p = C.queue_file(character)
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix(p.suffix + ".tmp")
-    with tmp.open("w", encoding="utf-8") as f:
-        f.write(QUEUE_HEADER)
-        if entries:
-            yaml.dump(entries, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
-    os.replace(tmp, p)
+    with _queue_save_lock:
+        with tmp.open("w", encoding="utf-8") as f:
+            f.write(QUEUE_HEADER)
+            if entries:
+                yaml.dump(entries, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
+        os.replace(tmp, p)
 
 
 def make_unique_label(base: str, existing: set) -> str:
