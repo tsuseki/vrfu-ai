@@ -401,6 +401,178 @@ specific model card. For waiIllustrious, plain names.
 
 ---
 
+## 9. Project-Specific Conventions (vrfu-ai)
+
+This section is **not** generic Illustrious theory — it's about what works on the
+character LoRAs in this repo (tsu_chocola, cocoa_mizu, kutsu_rindo, …), all
+trained from VRChat avatar screenshots on waiIllustriousSDXL.
+
+### 9.1 The VRChat training problem
+
+Every character LoRA in this project is trained primarily on VRChat avatar
+screenshots — flat studio lighting, soft 3D shading, plastic skin tones. That
+aesthetic gets baked into the LoRA. Without an active style push at inference
+time, generations drift toward 2.5D doll-like rendering even when the character
+identity is correct.
+
+**The two levers that fight this, both required:**
+
+```
+positive: ..., anime coloring, cel shading, ...
+negative: ..., 3d, 3dcg, cgi, blender, render, vrchat, mmd, sourcefilmmaker,
+          photorealistic, realistic, photo, ...
+```
+
+`anime coloring, cel shading` are the *positive* style anchor. `3d, vrchat,
+mmd, render, blender, sourcefilmmaker, photorealistic` in the negative
+*forbid* the closest neighbors of the trained-in style. Both are in
+`generate.py`'s `BASE_NEGATIVE`. The positive stack should appear at the
+front of every prompt — see the canonical opener below.
+
+### 9.2 The canonical opener
+
+Every queue entry in this project should start with:
+
+```
+masterpiece, best quality, amazing quality, very aesthetic, newest, absurdres,
+anime coloring, cel shading,
+```
+
+That's the quality booster (see §2) plus the project-specific style anchor
+(§9.1). Skip it and outputs come out flatter and more 3D — verified in
+session A/B tests.
+
+### 9.3 The known-good template (cocoa emo-wink)
+
+Reference image: `cocoa_mizu/archive/done.yaml` → `emo-wink-nardack-3465`.
+Pattern:
+
+```
+masterpiece, best quality, amazing quality, very aesthetic, newest, absurdres,
+anime coloring, cel shading,
+artist:nardack, 1girl, solo, sensitive, {outfit},
+close-up, face focus, one eye closed, tongue out, peace sign,
+outdoor, blurred background, very aesthetic, absurdres
+```
+
+This consistently produces crisp anime-style outputs for cocoa. The template
+generalizes — swap `artist:nardack` for `artist:ningen` (also tier-A on
+this project), swap the expression / hand action / scene. Use it as a
+backbone for new prompts.
+
+Single-hand actions that fit `close-up, face focus`: `peace sign, v sign,
+thumbs up, finger heart, finger gun, hand near mouth, waving, hand up`.
+
+### 9.4 Pose × framing pitfall: close-up + both hands up
+
+Combining `close-up, face focus` with two-handed gestures (`both hands up,
+double v sign, both hands cupping cheeks` near the body extremes) at
+landscape resolution produces multi-body fragmentation — the model can't fit
+a tight face crop AND raised arms in 1216×832 and splits the frame into
+disconnected pieces. Verified failure mode.
+
+**Fix:** if both hands are raised, swap framing to `upper body` or `cowboy
+shot`. Keep `close-up, face focus` only when hands stay near the head.
+
+### 9.5 Color binding rule
+
+Every garment tag should carry its color. Dangling color-less tags drift via
+bleed from adjacent colored tags. Documented breakage in this codebase:
+
+```
+default outfit was:  white camisole, ..., off-shoulder black knit cardigan,
+                     oversized cardigan, ...
+problem:             "oversized cardigan" rendered white (color leaked from
+                     adjacent "white camisole")
+fix:                 oversized black cardigan
+```
+
+Same rule applies to other garments — if a tag could ambiguously inherit a
+color from a neighbor, bind it explicitly.
+
+### 9.6 Identity tags must match training captions
+
+Each character's `config.yaml` has a `character_tags` field that auto-prepends
+to every prompt. **These tags must match the training set's captions
+verbatim** — if `character_tags` includes `solid black fox tail` but the
+training captions only have `black fox tail`, the LoRA's identity anchor
+weakens and outputs drift.
+
+When changing `character_tags`, grep `characters/<name>/training/*.txt` to
+verify each tag actually appears in training.
+
+### 9.7 Artist tags trade fidelity for style
+
+`artist:NAME` pulls the character toward the artist's tendencies and away
+from the LoRA's trained features. Strong artists (atdan, wlop) drag harder
+than soft ones (nardack, ningen).
+
+**Default to noart prompts** for character-focused work. Use `artist:NAME`
+when style is the priority and minor face drift is acceptable. If identity
+drifts too hard with an artist tag, try lowering `character_lora_weight`
+in the character config from 0.8 to 0.7 — counterintuitively, sometimes a
+weaker LoRA blends better with a strong artist than a stronger one.
+
+### 9.8 Seed strategy
+
+**Leave `seed:` out of queue entries** — generate.py rolls a fresh random
+seed per image, so each run produces variation. This is the default and the
+right choice for production prompts.
+
+**Pin `seed:` only for A/B comparisons** — when you want "same prompt,
+different LoRA / different config" and need pixel-level reproducibility.
+Tag the entry with `ab-` prefix so it's obvious it's a test.
+
+If you copy-paste an entry to retry it and get the same image: the seed is
+pinned. Strip the `seed:` line.
+
+### 9.9 Outfit placeholders
+
+Queue prompts use `{outfit}` (default outfit) or `{outfit:variant}` to look
+up the outfit from the character's `config.yaml` `outfits:` block. This
+keeps prompts short and lets you change a character's wardrobe in one
+place. Never inline a long outfit string in a prompt — always go through
+the config.
+
+When adding a new outfit variant, follow the color-binding rule (§9.5)
+and verify the outfit's tags appear in the training set captions
+(or close enough — outfit doesn't need exact training match like
+identity does, but consistency helps).
+
+### 9.10 Negatives are global by default
+
+`generate.py`'s `BASE_NEGATIVE` covers the cases that matter for this
+project: quality, anatomy, text/marks, 3D-source kill, multi-figure,
+identity protection (e.g., `white tail tip, two-tone tail`).
+
+**Don't repeat these in per-prompt negatives.** Only override `negative:`
+on a queue entry if you need a *different* set — e.g., explicit prompts
+where `cum, semen, fluids` shouldn't be in negative, or a clone scenario
+where multi-figure protections must be stripped (via `multi_girl: true`).
+
+### 9.11 Resolution defaults
+
+- **Portrait** (832×1216) — bust shots, full-body standing, intimate
+  upper-body framing
+- **Landscape** (1216×832) — dynamic poses, outdoor scenes, anything with
+  arms-spread or full body lying down
+- **Square** (1024×1024) — close-up + face focus, when composition is
+  centered on the face
+
+Higher resolutions (1216×1216, 1536×1024) work but climb the VRAM peak
+steeply — only use when needed. The upscaler handles 2K outputs cleanly
+from 1024 / 1216 inputs.
+
+### 9.12 Style stack vs artist tag — additive, not duplicative
+
+When using `artist:NAME`, **keep** the `anime coloring, cel shading` style
+tags in the prompt. They don't conflict with the artist; they reinforce
+"render this as 2D anime art" while the artist tag flavors *how*. Both
+levers active is stronger than either alone, especially against a
+VRChat-baked LoRA.
+
+---
+
 ## Quick reference: a known-good prompt
 
 ```
