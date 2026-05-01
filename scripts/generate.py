@@ -247,32 +247,28 @@ def load_pipeline(cfg: dict):
     pipe.set_adapters(adapter_names, adapter_weights=adapter_weights)
 
     # ── Memory strategy ──────────────────────────────────────────────────
-    # SDXL + LoRA + img2img + text encoders fits 24 GB cleanly but is
-    # right on the edge at 16 GB. When the friend's other apps eat VRAM,
-    # the pipeline overflows into Windows "shared GPU memory" and steps
-    # take 75 s/it instead of ~1.5 s/it. To prevent that on smaller
-    # cards we offload text encoders + VAE to CPU between uses; UNet
-    # stays GPU-resident for the hot loop.
+    # SDXL fits 24 GB cleanly but is tight on 16 GB. Two options to
+    # reclaim memory on smaller cards:
     #
-    # Known caveat: enable_model_cpu_offload races with CompelForSDXL.
-    # Compel calls the text encoders directly with CPU-side token tensors,
-    # the offload hook moves the encoder weights to GPU, but the inputs
-    # stay on CPU → "Expected all tensors to be on the same device".
-    # diffusers prints "Skipping and continuing..." and retries via the
-    # standard pipeline path on the next image, costing ~10 s/image.
-    # That's a much better deal than the 30-min/image swapping otherwise.
+    # - enable_model_cpu_offload: ping-pongs text encoders to CPU. Saves
+    #   ~2 GB but breaks CompelForSDXL — the offload hook moves encoder
+    #   weights to GPU but Compel's CPU-side token IDs aren't moved with
+    #   them, causing fatal "Expected all tensors to be on the same
+    #   device" errors that fail every image.
+    #
+    # - enable_attention_slicing: slices the UNet's attention into
+    #   chunks. Saves ~3-4 GB (attention is the biggest single VRAM
+    #   consumer at peak). ~15% slower per step, but no device
+    #   juggling and no Compel race. Always safe.
+    #
+    # We pick attention slicing on <20 GB cards.
+    pipe.to("cuda")
+    pipe.enable_vae_slicing()
+    pipe.enable_vae_tiling()
     total_vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
     if total_vram_gb < 20:
-        print(f"VRAM {total_vram_gb:.1f} GB — enabling model CPU offload + VAE slicing.")
-        print("(expect ~10 s of recovery time per image from a known Compel/offload race;")
-        print(" still vastly faster than the alternative of swapping into shared memory.)")
-        pipe.enable_model_cpu_offload()
-        pipe.enable_vae_slicing()
-        pipe.enable_vae_tiling()
-    else:
-        pipe.to("cuda")
-        pipe.enable_vae_slicing()
-        pipe.enable_vae_tiling()
+        print(f"VRAM {total_vram_gb:.1f} GB — enabling attention slicing for memory headroom.")
+        pipe.enable_attention_slicing()
     print("Pipeline ready.\n")
     img2img = StableDiffusionXLImg2ImgPipeline.from_pipe(pipe)
     return pipe, img2img

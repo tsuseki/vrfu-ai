@@ -145,29 +145,17 @@ def build_pipe(cfg: dict):
     print(f"Loading LoRA: {char_lora.name} @ {LORA_WEIGHT}")
     pipe.load_lora_weights(str(char_lora.parent), weight_name=char_lora.name, adapter_name="character")
     pipe.set_adapters(["character"], adapter_weights=[LORA_WEIGHT])
-    # Same VRAM strategy as generate.py.
-    # 16 GB cards run img2img at 1.5x peaks right at the ceiling and
-    # Windows pages into shared system RAM, which tanks throughput
-    # from ~30 s/image to 10+ minutes. CPU-offload text encoders and
-    # VAE on smaller cards; UNet stays GPU-resident.
-    #
-    # Known caveat: enable_model_cpu_offload races with CompelForSDXL
-    # (Compel calls text encoders with CPU-side token tensors while
-    # offload moves the encoder weights to GPU). Diffusers catches the
-    # device-mismatch and recovers, costing ~10 s/image. Still vastly
-    # faster than the alternative of swapping into shared memory.
-    # 16 GB users at 2.0x may still OOM; drop to 1.5x or 1.25x in the
-    # website's scale picker.
+    # Same VRAM strategy as generate.py: attention slicing (memory savings
+    # without the CompelForSDXL device-mismatch race that
+    # enable_model_cpu_offload causes). 16 GB users at high upscale
+    # scales can also drop to 1.5x or 1.25x via the website's scale picker.
+    pipe.to("cuda")
+    pipe.enable_vae_slicing()
+    pipe.vae.enable_tiling()
     total_vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
     if total_vram_gb < 20:
-        print(f"VRAM {total_vram_gb:.1f} GB — enabling model CPU offload + VAE slicing.")
-        pipe.enable_model_cpu_offload()
-        pipe.enable_vae_slicing()
-        pipe.vae.enable_tiling()
-    else:
-        pipe.to("cuda")
-        pipe.enable_vae_slicing()
-        pipe.vae.enable_tiling()
+        print(f"VRAM {total_vram_gb:.1f} GB — enabling attention slicing for memory headroom.")
+        pipe.enable_attention_slicing()
     # CompelForSDXL hooks into the pipeline's offload mechanism so encoders
     # used here move with the rest of the pipeline. The old Compel(...) ctor
     # takes direct refs to text_encoder objects and breaks under
