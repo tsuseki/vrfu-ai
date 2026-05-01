@@ -147,7 +147,6 @@
         <option value="comment">💬 Has comment</option>
       </select>
     </label>
-    <button id="toggle-upscaled" title="Show upscaled (2K) versions when available" class="toggle-btn active">✨ 2K</button>
     <button id="organize"        class="view-only-output hidden" title="Move output images to Liked or Archive based on votes">📦 Organize</button>
     <span class="upscale-group view-only-liked hidden">
       <button id="upscale-btn" title="Upscale all images in liked/">🔼 Upscale liked</button>
@@ -157,8 +156,8 @@
         <p class="upscale-hint">1.5 fits a 16 GB card.<br>2.0 needs ~20 GB.</p>
       </div>
     </span>
-    <button id="refresh">🔄 Refresh</button>
     <button id="toggle-stats">📊 Stats</button>
+    <button id="toggle-report">📈 Global report</button>
   </div>
 
   <section id="stats" class="stats hidden">
@@ -166,6 +165,17 @@
       <div class="stat-card"><h3>Counts</h3><ul id="stat-counts"></ul></div>
       <div class="stat-card"><h3>Top favorite artists</h3><ol id="stat-top-artists"></ol></div>
       <div class="stat-card"><h3>Top loved categories</h3><ol id="stat-top-categories"></ol></div>
+      <div class="stat-card"><h3>Issue artists</h3><ol id="stat-issue-artists"></ol></div>
+    </div>
+  </section>
+
+  <section id="report" class="stats hidden">
+    <div class="stats-grid">
+      <div class="stat-card"><h3>Global counts (all characters)</h3><ul id="report-counts"></ul></div>
+      <div class="stat-card"><h3>Top favorite artists (global)</h3><ol id="report-top-artists"></ol></div>
+      <div class="stat-card"><h3>Top loved categories (global)</h3><ol id="report-top-categories"></ol></div>
+      <div class="stat-card"><h3>Issue artists (global)</h3><ol id="report-issue-artists"></ol></div>
+      <div class="stat-card"><h3>Per character</h3><ol id="report-per-character"></ol></div>
     </div>
   </section>
 

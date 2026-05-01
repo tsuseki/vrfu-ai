@@ -14,7 +14,7 @@ const state = {
   perPage: 50,
   total:   0,
   pages:   1,
-  showUpscaled: localStorage.getItem("showUpscaled") !== "false",  // default: true
+  showUpscaled: true,  // always prefer upscaled when available
   upscaleScale: Math.max(1.0, Math.min(3.0, parseFloat(localStorage.getItem("upscaleScale")) || 2.0)),
   search: "",
   // Run polling
@@ -724,6 +724,37 @@ async function loadStats() {
   $("#stat-issue-artists").innerHTML  = fmt(s.top_issue_artists);
 }
 
+async function loadGlobalReport() {
+  const s = await api(`/api/stats/global`);
+  const c = s.counts;
+  $("#report-counts").innerHTML = `
+    <li><strong>${c.characters}</strong> characters</li>
+    <li><strong>${c.total}</strong> total images</li>
+    <li><strong>${c.voted}</strong> voted (${c.total ? Math.round(c.voted / c.total * 100) : 0}%)</li>
+    <li><strong>${c.super_liked || 0}</strong> 💜 super liked</li>
+    <li><strong>${c.loved}</strong> ❤️ loved</li>
+    <li><strong>${c.liked}</strong> 👍 liked</li>
+    <li><strong>${c.disliked || 0}</strong> 👎 disliked</li>
+    <li><strong>${c.style}</strong> 🎨 style liked</li>
+    <li><strong>${c.prompt}</strong> 📍 prompt liked</li>
+    <li><strong>${c.pose}</strong> 🤸 pose liked</li>
+    <li><strong>${c.outfit}</strong> 👗 outfit liked</li>
+    <li><strong>${c.anatomy_issue}</strong> ⚠️ anatomy issues</li>
+    <li><strong>${c.with_comment}</strong> 💬 with comments</li>`;
+  const fmt = arr => arr.length
+    ? arr.map(([k, v]) => `<li><strong>${k}</strong> — ${v}</li>`).join("")
+    : "<li><em>(none yet)</em></li>";
+  $("#report-top-artists").innerHTML    = fmt(s.top_artists);
+  $("#report-top-categories").innerHTML = fmt(s.top_categories);
+  $("#report-issue-artists").innerHTML  = fmt(s.top_issue_artists);
+  $("#report-per-character").innerHTML  = s.per_character.length
+    ? s.per_character
+        .sort((a, b) => (b.counts.voted || 0) - (a.counts.voted || 0))
+        .map(p => `<li><strong>${p.name}</strong> — ${p.counts.total} imgs, ${p.counts.voted} voted, ${p.counts.loved}❤️ ${p.counts.liked}👍 ${p.counts.disliked || 0}👎</li>`)
+        .join("")
+    : "<li><em>(no characters)</em></li>";
+}
+
 async function loadImages() {
   if (!state.character) return;
   const url = `/api/images?character=${encodeURIComponent(state.character)}`
@@ -818,7 +849,7 @@ function renderGrid(images) {
 
     const im = card.querySelector(".thumb");
     // Default to upscaled version when available and toggle is on
-    const useUpscaled = state.showUpscaled && img.upscaled_filename;
+    const useUpscaled = !!img.upscaled_filename;
     im.src = `/img/${state.character}/${useUpscaled ? img.upscaled_filename : img.filename}`;
     im.dataset.originalFilename = img.filename;
     im.dataset.upscaledFilename = img.upscaled_filename || "";
@@ -1201,15 +1232,10 @@ $("#search").addEventListener("input", e => {
 $("#search").addEventListener("keydown", e => {
   if (e.key === "Escape") { e.target.value = ""; state.search = ""; state.page = 1; loadImages(); }
 });
-$("#refresh").addEventListener("click", async () => {
-  await fetch("/api/refresh"); loadBatches(); loadArtists(); loadImages(); loadStats();
-});
-$("#toggle-upscaled").addEventListener("click", () => {
-  state.showUpscaled = !state.showUpscaled;
-  localStorage.setItem("showUpscaled", state.showUpscaled);
-  $("#toggle-upscaled").classList.toggle("active", state.showUpscaled);
-  $("#toggle-upscaled").textContent = state.showUpscaled ? "✨ 2K" : "🖼️ Original";
-  loadImages();
+$("#toggle-report").addEventListener("click", () => {
+  $("#report").classList.toggle("hidden");
+  $("#stats").classList.add("hidden");
+  if (!$("#report").classList.contains("hidden")) loadGlobalReport();
 });
 $("#organize").addEventListener("click", organizeOutput);
 $("#upscale-btn").addEventListener("click", startUpscale);
@@ -1265,6 +1291,7 @@ document.addEventListener("keydown", e => {
 updateTabActionButtons();
 $("#toggle-stats").addEventListener("click", () => {
   $("#stats").classList.toggle("hidden");
+  $("#report").classList.add("hidden");
   if (!$("#stats").classList.contains("hidden")) loadStats();
 });
 
@@ -1380,8 +1407,6 @@ $("#add-character-name").addEventListener("keydown", e => {
 
 // Bootstrap
 (async () => {
-  $("#toggle-upscaled").classList.toggle("active", state.showUpscaled);
-  $("#toggle-upscaled").textContent = state.showUpscaled ? "✨ 2K" : "🖼️ Original";
   await loadCharacters();
   switchPage(state.page_active);
   resumeToolPollIfRunning();

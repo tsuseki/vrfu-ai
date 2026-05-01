@@ -1,0 +1,77 @@
+# ──────────────────────────────────────────────────────────
+# ai-toolkit training config — Tsu Chocola
+# Triggered from the website's Training panel via scripts/train.py
+# (which wraps ai-toolkit's run.py).
+# ──────────────────────────────────────────────────────────
+
+---
+job: extension
+config:
+  name: "tsu_chocola"
+  process:
+    - type: 'sd_trainer'
+      training_folder: "F:/AI Art/loras"
+      device: cuda:0
+      trigger_word: "tsu chocola"
+
+      network:
+        type: "lora"
+        linear: 32
+        linear_alpha: 16
+
+      save:
+        dtype: float16
+        save_every: 250
+        max_step_saves_to_keep: 4
+        push_to_hub: false
+
+      datasets:
+        - folder_path: "F:/AI Art/characters/tsu_chocola/training"
+          caption_ext: "txt"
+          caption_dropout_rate: 0.05
+          shuffle_tokens: false
+          cache_latents_to_disk: true
+          resolution: [ 512, 768, 1024 ]
+
+      train:
+        batch_size: 1
+        steps: 2000
+        gradient_accumulation_steps: 1
+        train_unet: true
+        train_text_encoder: true
+        gradient_checkpointing: true
+        noise_scheduler: "ddpm"
+        optimizer: "adamw8bit"
+        lr: 1e-4
+        ema_config:
+          use_ema: true
+          ema_decay: 0.99
+        dtype: bf16
+
+      model:
+        # Absolute path — ai-toolkit's run.py runs with cwd=ai-toolkit/ so
+        # relative paths like "../../checkpoints/..." resolve to F:/checkpoints/
+        # which doesn't exist. Diffusers' from_pretrained() doesn't re-resolve.
+        name_or_path: "F:/AI Art/checkpoints/waiIllustriousSDXL_v170.safetensors"
+        is_flux: false
+        arch: sdxl
+
+      sample:
+        sampler: "ddpm"
+        sample_every: 250
+        width: 1024
+        height: 1024
+        prompts:
+          - "tsu chocola, fox girl, black fox ears, solid black fox tail, black hair, red eyes, red feather hair ornament, side braid, anime girl, solo, white camisole, midriff, navel, off-shoulder black knit cardigan, oversized cardigan, black shorts, drawstring shorts, barefoot, red toenails, looking at viewer, full body, standing, white background, masterpiece, best quality"
+          - "tsu chocola, fox girl, black fox ears, solid black fox tail, black hair, red eyes, red feather hair ornament, anime girl, solo, close-up, face focus, smile, white background, masterpiece, best quality"
+          - "tsu chocola, fox girl, black fox ears, solid black fox tail, black hair, red eyes, red feather hair ornament, anime girl, solo, nude, breasts, small breasts, upper body, white background, masterpiece, best quality"
+          - "tsu chocola, fox girl, black fox ears, solid black fox tail, black hair, red eyes, red feather hair ornament, anime girl, solo, black crop top, harness, black shorts, full body, standing, white background, masterpiece, best quality"
+        neg: "worst quality, low quality, bad anatomy, deformed, blurry, extra limbs, ugly, multiple characters, white tail tip, two-tone tail"
+        seed: 42
+        walk_seed: true
+        guidance_scale: 7
+        sample_steps: 20
+
+meta:
+  name: "tsu_chocola"
+  version: '2.0'

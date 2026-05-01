@@ -9,7 +9,12 @@ trigger_word: "tsu chocola"
 # Core character features auto-prepended to every prompt.
 # These match the tags used during training so the LoRA fires properly.
 # Eye/face tags help pull the LoRA's flame-iris and cheek-diamond detail through.
-character_tags: "1girl, solo, fox girl, black fox ears, solid black fox tail, black hair, red eyes, diamond-shaped pupils, red feather hair ornament, facial mark"
+# Tags MUST match the training captions, otherwise the LoRA's identity
+# anchors weakly and generation drifts. Earlier this had "solid black fox
+# tail, diamond-shaped pupils, facial mark" — none of those tokens were
+# in the new training captions, so the LoRA had no association for them
+# and outputs went off the rails.
+character_tags: "1girl, solo, fox girl, black fox ears, black fox tail, black hair, red eyes, red feather hair ornament, side braid"
 
 # Base checkpoint (Illustrious-family SDXL fine-tune, NSFW-capable)
 checkpoint: "checkpoints/waiIllustriousSDXL_v170.safetensors"
@@ -32,8 +37,37 @@ sampler: euler_a       # or: dpmpp_2m_karras
 
 # Named outfits for {outfit} / {outfit:name} placeholders in queue prompts.
 # A prompt containing {outfit} expands to outfits.default before generation.
-# NOTE: training images mostly used a WHITE camisole (7 of 47 captions) — if you
-# meant a black one, edit this. 17 of 47 training images are nude, so this
-# default is best-effort from the clothed images.
+# Tags chosen to match what's in the training set so the LoRA fires the correct look.
 outfits:
-  default: "white camisole, black shorts, choker, harness, bracelet"
+  # The signature look (white camisole + black knit cardigan + black drawstring shorts)
+  default: "white camisole, midriff, navel, off-shoulder black knit cardigan, oversized black cardigan, black shorts, drawstring shorts, barefoot, red toenails"
+
+  # Streetwear: black crop top + harness + shorts. Trained with athletic poses.
+  harness: "black crop top, midriff, navel, harness, black shorts, arm warmers, barefoot, red toenails"
+
+  # Hoodie casual: black hoodie cropped over crop top + shorts + sneakers
+  hoodie: "black hoodie, crop top, midriff, black shorts, drawstring shorts, black sneakers"
+
+  # Sporty: white sports bra + black drawstring shorts + sneakers
+  sporty: "white sports bra, midriff, navel, black shorts, drawstring shorts, black sneakers, white socks"
+
+  # Mini dress with arm sleeves + platform/black boots, choker
+  dress: "black mini dress, arm sleeves, choker, heart pendant, black boots"
+
+  # Sleeveless bodysuit + detached sleeves (couch/lounge look)
+  bodysuit: "black bodysuit, black detached sleeves"
+
+  # Red sweater crop top + harness + shorts
+  red_sweater: "red sweater, crop top, midriff, navel, black shorts, harness, black sneakers"
+
+  # Oversized black knit sweater (cozy at-home)
+  cozy: "oversized black knit sweater, bare legs, barefoot, red toenails, choker"
+
+  # Striped bikini (black & white)
+  bikini: "black and white striped bikini, bikini top, bikini bottom, cleavage"
+
+  # White towel wrapped (post-bath)
+  towel: "white towel, towel only, naked towel, bath towel, towel around chest"
+
+  # White camisole + denim shorts (summer casual)
+  denim: "white camisole, denim shorts, midriff, navel, barefoot, red toenails"

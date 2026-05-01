@@ -513,13 +513,57 @@ def aggregate_stats(character: str) -> dict:
             cat = info["category"]
             category_score[cat] = category_score.get(cat, 0) + 1
 
-    def top(d, n=5):
+    def top(d, n=20):
         return sorted(d.items(), key=lambda kv: -kv[1])[:n]
     return {
         "counts": counters,
-        "top_artists":       top(artist_score, 8),
-        "top_categories":    top(category_score, 6),
-        "top_issue_artists": top(artist_issue, 5),
+        "top_artists":       top(artist_score, 20),
+        "top_categories":    top(category_score, 20),
+        "top_issue_artists": top(artist_issue, 20),
+    }
+
+
+def aggregate_stats_global() -> dict:
+    """Same shape as aggregate_stats but unioned across every character.
+
+    Useful for cross-character comparisons (which artist tag works best across
+    the whole project, which categories accumulate the most signal, etc).
+    """
+    counters = {
+        "total": 0, "voted": 0,
+        "super_liked": 0, "loved": 0, "liked": 0, "disliked": 0,
+        "style": 0, "prompt": 0, "pose": 0, "outfit": 0,
+        "anatomy_issue": 0, "with_comment": 0,
+        "characters": 0,
+    }
+    artist_score: dict   = {}
+    artist_issue: dict   = {}
+    category_score: dict = {}
+    per_character: list  = []
+
+    for char in C.list_characters():
+        s = aggregate_stats(char)
+        c = s["counts"]
+        per_character.append({"name": char, "counts": c})
+        counters["characters"] += 1
+        for k in ("total", "voted", "super_liked", "loved", "liked", "disliked",
+                  "style", "prompt", "pose", "outfit", "anatomy_issue", "with_comment"):
+            counters[k] += c.get(k, 0)
+        for name, score in s["top_artists"]:
+            artist_score[name] = artist_score.get(name, 0) + score
+        for name, score in s["top_issue_artists"]:
+            artist_issue[name] = artist_issue.get(name, 0) + score
+        for name, score in s["top_categories"]:
+            category_score[name] = category_score.get(name, 0) + score
+
+    def top(d, n=20):
+        return sorted(d.items(), key=lambda kv: -kv[1])[:n]
+    return {
+        "counts": counters,
+        "top_artists":       top(artist_score, 20),
+        "top_categories":    top(category_score, 20),
+        "top_issue_artists": top(artist_issue, 20),
+        "per_character":     per_character,
     }
 
 
@@ -1132,6 +1176,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/stats":
             character = char or (C.list_characters() or ["tsu_chocola"])[0]
             return self._send_json(aggregate_stats(character))
+
+        if path == "/api/stats/global":
+            return self._send_json(aggregate_stats_global())
 
         if path == "/api/batches":
             character = char or (C.list_characters() or ["tsu_chocola"])[0]
