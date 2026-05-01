@@ -42,9 +42,12 @@ BASE_NEGATIVE = (
     "3d, 3dcg, cgi, blender, render, vrchat, mmd, sourcefilmmaker, "
     "photorealistic, realistic, photo, "
     # multi-figure
-    "multiple characters, multiple girls, 2girls, multiple views, split screen, "
-    # project-specific identity protection
-    "white tail tip, two-tone tail, multicolored tail"
+    "multiple characters, multiple girls, 2girls, multiple views, split screen"
+    # NOTE: per-character identity-protection negatives (e.g. "white tail tip"
+    # for tsu_chocola) live in each character's config.yaml under
+    # `negative_tags`, NOT here — they don't apply to all characters and
+    # actively hurt characters who legitimately have those features
+    # (e.g. cocoa_mizu has multicolored hair and a striped tail).
 )
 
 
@@ -127,6 +130,9 @@ def build_prompt(entry: dict, cfg: dict) -> tuple[str, str]:
         prompt = ", ".join(parts) + ", " + user_prompt
 
     negative = _strip_multigirl_negatives(BASE_NEGATIVE) if multi_girl else BASE_NEGATIVE
+    char_neg = cfg.get("negative_tags", "").strip()
+    if char_neg:
+        negative = f"{negative}, {char_neg}"
     if entry.get("negative"):
         negative = f"{negative}, {entry['negative']}"
     return prompt, negative

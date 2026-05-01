@@ -16,6 +16,15 @@ trigger_word: "tsu chocola"
 # and outputs went off the rails.
 character_tags: "1girl, solo, fox girl, black fox ears, black fox tail, black hair, red eyes, red feather hair ornament, side braid"
 
+# Character-specific negatives — appended to BASE_NEGATIVE only for this
+# character. Used to kill known training artifacts that don't generalize:
+# the v2 LoRA was trained on captions where some images had the tail tip
+# rendered white or two-tone (a VRChat shader artifact). These tags pull
+# the model back to a fully-black tail, matching the canonical look.
+# Do NOT add tags here that the character legitimately has — those should
+# stay in character_tags instead.
+negative_tags: "white tail tip, two-tone tail, multicolored tail"
+
 # Base checkpoint (Illustrious-family SDXL fine-tune, NSFW-capable)
 checkpoint: "checkpoints/waiIllustriousSDXL_v170.safetensors"
 
