@@ -75,6 +75,8 @@ echo   3. Double-click launch_website.bat
 echo   4. Open http://localhost:8765 in your browser
 echo ============================================================
 echo.
+echo Press any key to close this window.
+pause >nul
 endlocal
 exit /b 0
 
@@ -87,5 +89,8 @@ echo   - Make sure Python 3.10 or 3.11 is on PATH
 echo   - Make sure you have a CUDA-capable GPU and recent drivers
 echo   - Check internet connection (pip needs to download ~5 GB)
 echo ============================================================
+echo.
+echo Press any key to close this window.
+pause >nul
 endlocal
 exit /b 1
