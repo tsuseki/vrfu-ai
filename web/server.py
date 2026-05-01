@@ -1230,7 +1230,7 @@ class Handler(BaseHTTPRequestHandler):
             character = char or (C.list_characters() or ["tsu_chocola"])[0]
             user_prompt = qs.get("prompt", [""])[0] or ""
             user_negative = qs.get("negative", [""])[0] or ""
-            cfg_path = C.character_dir(character) / "config.yaml"
+            cfg_path = C.char_dir(character) / "config.yaml"
             cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) if cfg_path.exists() else {}
             entry = {"prompt": user_prompt, "negative": user_negative}
             try:
