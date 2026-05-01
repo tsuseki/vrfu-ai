@@ -22,6 +22,7 @@ A curated reference of Danbooru artist tags known to work well with Illustrious-
 | Artist | Score | Voted / In batch | Notes |
 |---|---:|---|---|
 | **ke-ta** | +8 | 6 / 32 | Dreamy pastel, atmospheric. Works for feet/mood |
+| **nardack** | +5 | 3 / 3 | Soft warm shading, food/cozy SFW scenes. 100% hit rate on cocoa_mizu — small sample but very clean |
 | **ningen** | +5 | 3 / 31 | Clean cute lines, good general-purpose |
 
 ## ❓ Tier B — weak or thin signal, retest with single-artist prompts
