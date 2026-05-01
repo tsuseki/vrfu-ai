@@ -10,6 +10,12 @@ PyYAML>=6.0
 # Image I/O for upscaler / web image serving (ai-toolkit also depends on it)
 Pillow>=10.0
 
+# Pin huggingface-hub to 0.x. transformers 4.57.x (pinned by ai-toolkit) requires
+# huggingface-hub<1.0, but pip's resolver sometimes drags in 1.x anyway when
+# other packages (peft, diffusers, accelerate) request a newer version. Locking
+# it here as the last word so setup.bat ends up with a working combo.
+huggingface-hub>=0.34.0,<1.0
+
 # Note on torchao: ai-toolkit pins torchao==0.10.0 (the only version compatible
 # with its torch 2.5.1 pin). peft refuses to load LoRAs when it sees torchao
 # < 0.16.0, but we patch peft's check at runtime in scripts/generate.py and
