@@ -784,8 +784,12 @@ def _watch_tool(tool_name: str, proc: subprocess.Popen, log_path: Path) -> None:
             print(f"[chain] failed to start gen: {e}")
 
 
-def spawn_tool(tool_name: str, character: str, script_name: str) -> dict:
-    """Spawn `python scripts/<script_name> --character <name>` as a subprocess."""
+def spawn_tool(tool_name: str, character: str, script_name: str,
+               extra_args: list[str] | None = None) -> dict:
+    """Spawn `python scripts/<script_name> --character <name>` as a subprocess.
+
+    extra_args: forwarded to the subprocess (e.g. ['--scale', '1.5']).
+    """
     with _tool_lock:
         existing = _tool_state.get(tool_name)
         if existing and existing.get("state") == "running":
@@ -811,6 +815,8 @@ def spawn_tool(tool_name: str, character: str, script_name: str) -> dict:
 
         venv_python = VENV_PYTHON
         cmd = [str(venv_python), str(C.SCRIPTS / script_name), "--character", character]
+        if extra_args:
+            cmd.extend(extra_args)
         log_f = log_path.open("w", encoding="utf-8")
         proc = subprocess.Popen(
             cmd, stdout=log_f, stderr=subprocess.STDOUT,
@@ -835,7 +841,8 @@ def spawn_tool(tool_name: str, character: str, script_name: str) -> dict:
     return {"ok": True, "log_path": str(log_path)}
 
 
-def spawn_upscale_single(character: str, src_path: str, stem: str) -> dict:
+def spawn_upscale_single(character: str, src_path: str, stem: str,
+                         scale: float | None = None) -> dict:
     """Spawn upscale.py for ONE arbitrary image using --src-file mode."""
     with _tool_lock:
         if _tool_state.get("upscale", {}).get("state") == "running":
@@ -851,6 +858,8 @@ def spawn_upscale_single(character: str, src_path: str, stem: str) -> dict:
             "--src-file", src_path,
             "--stem-as", stem,
         ]
+        if scale and scale > 0:
+            cmd.extend(["--scale", str(float(scale))])
         log_f = log_path.open("w", encoding="utf-8")
         proc = subprocess.Popen(
             cmd, stdout=log_f, stderr=subprocess.STDOUT,
@@ -1502,7 +1511,12 @@ class Handler(BaseHTTPRequestHandler):
             character = body.get("character")
             if not character:
                 return self._send_json({"ok": False, "err": "missing character"}, 400)
-            return self._send_json(spawn_tool("upscale", character, "upscale.py"))
+            extra: list[str] = []
+            scale = body.get("scale")
+            if isinstance(scale, (int, float)) and scale > 0:
+                extra.extend(["--scale", str(float(scale))])
+            return self._send_json(spawn_tool("upscale", character, "upscale.py",
+                                              extra_args=extra))
 
         if path == "/api/training/start":
             character = body.get("character")
@@ -1552,7 +1566,9 @@ class Handler(BaseHTTPRequestHandler):
             # GPU mutual exclusion with generation
             if _run_proc and _run_proc.poll() is None:
                 return self._send_json({"ok": False, "err": "Generation run in progress."}, 409)
-            return self._send_json(spawn_upscale_single(character, str(src), stem))
+            scale = body.get("scale")
+            scale_arg = float(scale) if isinstance(scale, (int, float)) and scale > 0 else None
+            return self._send_json(spawn_upscale_single(character, str(src), stem, scale_arg))
 
         if path == "/api/build-reference":
             character = body.get("character")

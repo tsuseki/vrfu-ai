@@ -145,8 +145,19 @@ def build_pipe(cfg: dict):
     print(f"Loading LoRA: {char_lora.name} @ {LORA_WEIGHT}")
     pipe.load_lora_weights(str(char_lora.parent), weight_name=char_lora.name, adapter_name="character")
     pipe.set_adapters(["character"], adapter_weights=[LORA_WEIGHT])
-    pipe.to("cuda")
-    pipe.vae.enable_tiling()
+    # Same VRAM strategy as generate.py: 16 GB cards run img2img at 1.5x peaks
+    # right at the ceiling and Windows pages into shared system RAM, which
+    # tanks throughput from ~30 s/image to 10+ min. CPU-offload text encoders
+    # and VAE on smaller cards; UNet stays GPU-resident.
+    total_vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
+    if total_vram_gb < 20:
+        print(f"VRAM {total_vram_gb:.1f} GB — enabling model CPU offload + VAE slicing.")
+        pipe.enable_model_cpu_offload()
+        pipe.enable_vae_slicing()
+        pipe.vae.enable_tiling()
+    else:
+        pipe.to("cuda")
+        pipe.vae.enable_tiling()
     compel = Compel(
         tokenizer=[pipe.tokenizer, pipe.tokenizer_2],
         text_encoder=[pipe.text_encoder, pipe.text_encoder_2],
@@ -197,6 +208,9 @@ def main() -> None:
     parser.add_argument("--stems", help="Comma-separated list of stems to process; default = all of liked/")
     parser.add_argument("--src-file", help="Process a single PNG path directly (off-tree mode)")
     parser.add_argument("--stem-as", help="Treat --src-file as having this stem (for output naming)")
+    parser.add_argument("--scale", type=float, default=None,
+                        help="Override upscale factor (e.g. 1.25, 1.5, 2.0). "
+                             "Falls back to config.yaml's upscale_scale, then VRAM auto-pick.")
     args = parser.parse_args()
 
     char_name = C.resolve_default_character(args.character)
@@ -236,8 +250,13 @@ def main() -> None:
     pipe, compel = build_pipe(cfg)
     done_idx = load_done_index(char_name)
 
-    scale = auto_pick_scale(cfg)
-    print(f"Upscale factor: {scale}x  ({'config override' if cfg.get('upscale_scale') else 'auto'})\n")
+    if args.scale and args.scale > 0:
+        scale = float(args.scale)
+        scale_source = "CLI flag"
+    else:
+        scale = auto_pick_scale(cfg)
+        scale_source = "config override" if cfg.get("upscale_scale") else "VRAM auto-pick"
+    print(f"Upscale factor: {scale}x  ({scale_source})\n")
 
     failures: list[str] = []
     total = len(work)
