@@ -247,23 +247,17 @@ def load_pipeline(cfg: dict):
     pipe.set_adapters(adapter_names, adapter_weights=adapter_weights)
 
     # ── Memory strategy ──────────────────────────────────────────────────
-    # SDXL + LoRA + img2img + text encoders fits comfortably in 24 GB but
-    # is right on the edge at 16 GB. When we exceed VRAM, Windows swaps
-    # GPU memory into system RAM ("shared GPU memory") which destroys
-    # throughput — 60s/it instead of 1-2s/it. To avoid that on smaller
-    # cards we run text encoders + VAE on CPU and only move them to GPU
-    # when actually executing. UNet stays on GPU always (~80% of the work).
-    # Net cost is ~10% slower per step, but no swapping — far faster
-    # in practice on 12-16 GB cards.
-    total_vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
-    if total_vram_gb < 20:
-        print(f"VRAM {total_vram_gb:.1f} GB — enabling model CPU offload + VAE slicing.")
-        pipe.enable_model_cpu_offload()
-        pipe.enable_vae_slicing()
-        pipe.enable_vae_tiling()
-    else:
-        pipe.to("cuda")
-        pipe.enable_vae_tiling()
+    # SDXL gen at 832x1216 peaks ~10-12 GB which fits 16 GB with margin.
+    # Earlier we tried enable_model_cpu_offload on <20 GB cards but it
+    # races with CompelForSDXL — the offload hooks bounce text encoders
+    # to CPU between calls and Compel doesn't always re-pin them, causing
+    # "Expected all tensors to be on the same device" errors.
+    # Just keep everything on GPU and use VAE memory tricks (which are
+    # always safe). 16 GB users with extra apps eating VRAM can close
+    # those apps; smaller cards (12 GB) may need to stay below 1024x1024.
+    pipe.to("cuda")
+    pipe.enable_vae_slicing()
+    pipe.enable_vae_tiling()
     print("Pipeline ready.\n")
     img2img = StableDiffusionXLImg2ImgPipeline.from_pipe(pipe)
     return pipe, img2img
