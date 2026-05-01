@@ -574,21 +574,44 @@ QUEUE_HEADER = """# PROMPT QUEUE
 """
 
 
+class QueueParseError(Exception):
+    """Raised when queue.yaml has invalid YAML — surfaced to the user as 400.
+
+    Avoids crashing the server thread when a queue file gets malformed (e.g.,
+    a manual edit drops a leading dash, leaving an entry as a nested mapping
+    inside the previous one).
+    """
+    def __init__(self, msg: str, path: Path):
+        super().__init__(msg)
+        self.path = path
+
+
 def load_queue(character: str) -> list[dict]:
     p = C.queue_file(character)
     if not p.exists():
         return []
-    raw = yaml.safe_load(p.read_text(encoding="utf-8")) or []
+    try:
+        raw = yaml.safe_load(p.read_text(encoding="utf-8")) or []
+    except yaml.YAMLError as e:
+        raise QueueParseError(str(e), p) from e
     return [e for e in raw if isinstance(e, dict)]
 
 
 def save_queue(character: str, entries: list[dict]) -> None:
+    """Atomic write so a crash mid-save can't leave a half-written file.
+
+    Writes to <name>.yaml.tmp, then os.replace() onto the final path —
+    atomic on both Windows and POSIX. Prevents the "partial write =
+    permanently broken queue" failure mode.
+    """
     p = C.queue_file(character)
     p.parent.mkdir(parents=True, exist_ok=True)
-    with p.open("w", encoding="utf-8") as f:
+    tmp = p.with_suffix(p.suffix + ".tmp")
+    with tmp.open("w", encoding="utf-8") as f:
         f.write(QUEUE_HEADER)
         if entries:
             yaml.dump(entries, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
+    os.replace(tmp, p)
 
 
 def make_unique_label(base: str, existing: set) -> str:
@@ -1023,6 +1046,17 @@ class Handler(BaseHTTPRequestHandler):
 
     # ── GET ──────────────────────────────────────────────────────────────────
     def do_GET(self):
+        try:
+            return self._do_GET_inner()
+        except QueueParseError as e:
+            return self._send_json({
+                "ok": False,
+                "err": f"Queue file {e.path.name} is malformed: {e}. "
+                       f"Open it in an editor and fix the YAML — usually a missing '- ' "
+                       f"in front of an entry's first line."
+            }, 400)
+
+    def _do_GET_inner(self):
         url   = urllib.parse.urlparse(self.path)
         path  = url.path
         qs    = urllib.parse.parse_qs(url.query)
@@ -1304,6 +1338,17 @@ class Handler(BaseHTTPRequestHandler):
 
     # ── POST ─────────────────────────────────────────────────────────────────
     def do_POST(self):
+        try:
+            return self._do_POST_inner()
+        except QueueParseError as e:
+            return self._send_json({
+                "ok": False,
+                "err": f"Queue file {e.path.name} is malformed: {e}. "
+                       f"Open it in an editor and fix the YAML — usually a missing '- ' "
+                       f"in front of an entry's first line."
+            }, 400)
+
+    def _do_POST_inner(self):
         body = self._read_body()
         path = self.path
 
