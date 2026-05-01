@@ -2,6 +2,102 @@
 
 Windows-only setup. Roughly 30 minutes of clock time, mostly waiting for downloads.
 
+If you've installed Python and Git before and know how to open a `cmd` window, skip to **section 1**. Otherwise read **section 0** first.
+
+---
+
+## 0. Absolute-beginner setup
+
+This section walks through installing Python, installing Git, what "PATH" means, and how to open a `cmd` window. If any of those are unfamiliar, do this section step by step. You only do it once on this machine.
+
+### 0a. Install Python
+
+1. Open <https://www.python.org/downloads/> in your browser.
+2. Click the big yellow "Download Python 3.x.x" button. (The exact version doesn't matter as long as it's 3.10, 3.11, or 3.12. **Don't** install 3.13 yet — some packages aren't ready for it.)
+3. Open the downloaded `.exe` file from your Downloads folder.
+4. **Critical step**: at the *very first* installer screen, **tick the box that says "Add python.exe to PATH"** at the bottom. If you skip this, nothing later will work and you'll have to uninstall and redo it.
+5. Click "Install Now" and wait for it to finish. Click "Close".
+
+#### Verifying Python installed correctly
+
+Open a `cmd` window (see **0d** below if you're not sure how) and type:
+
+```cmd
+python --version
+```
+
+You should see something like `Python 3.11.7`. If you see `'python' is not recognized as an internal or external command`, the "Add to PATH" tick didn't take — uninstall Python from Windows Settings → Apps, then redo step 4 above being sure to tick the box.
+
+### 0b. Install Git
+
+1. Open <https://git-scm.com/downloads/> in your browser.
+2. Click "Windows" → "64-bit Git for Windows Setup".
+3. Run the downloaded installer. **Just click Next on every screen** — the defaults are fine. Don't try to customize anything.
+
+#### Verifying Git installed correctly
+
+Open a *fresh* `cmd` window (existing ones won't see Git yet) and type:
+
+```cmd
+git --version
+```
+
+You should see something like `git version 2.45.0.windows.1`. If you see `'git' is not recognized`, restart Windows so the PATH update takes effect, then try again.
+
+### 0c. What is PATH and why does it matter?
+
+When you type a command like `python` or `git` in cmd, Windows looks for that program in a list of folders called the **PATH**. If the program's folder isn't on the PATH, Windows says "not recognized" even though the program is installed.
+
+Both installers above can add themselves to PATH automatically (Python via the tick box, Git's installer does it by default). If you skipped that, you'd have to type the full path every time, like `C:\Users\you\AppData\Local\Programs\Python\Python311\python.exe`. Don't do that — re-run the installer with the box ticked.
+
+You don't need to edit PATH manually for this project. If something says "not on PATH", the fix is always "re-run the installer with PATH option enabled".
+
+### 0d. Opening a cmd (Command Prompt) window
+
+`cmd` (also called Command Prompt or terminal) is a black window where you type text commands. There are several ways to open one:
+
+- **Win + R** → type `cmd` → Enter (this is the fastest)
+- Press the Win key → type `cmd` → click "Command Prompt"
+- Right-click the Start button (Win + X) → choose "Terminal" or "Command Prompt"
+
+#### Changing folders inside cmd
+
+When cmd opens, it usually starts in `C:\Users\<your-name>`. To move to a different folder, type:
+
+```cmd
+cd C:\vrfu-ai
+```
+
+Replace `C:\vrfu-ai` with the actual folder path. After running this, every command you type runs *as if* you were in that folder.
+
+The `cd /d` variant changes drives too: `cd /d D:\projects\vrfu-ai`.
+
+#### Tips
+
+- You can paste into cmd by right-clicking, or with Ctrl+V on Windows 10+.
+- Up arrow recalls your previous command.
+- The `cd` (no arguments) prints the folder you're currently in.
+- **Don't run cmd as administrator** for this project. You don't need to, and it changes the working directory in surprising ways. Just use a normal cmd window.
+
+### 0e. Verifying you're ready
+
+Open a fresh `cmd` window and run, one at a time:
+
+```cmd
+python --version
+git --version
+nvidia-smi
+```
+
+If all three print version info (and `nvidia-smi` shows your GPU), you're ready for section 1.
+
+If any of them errors:
+- `python` not recognized → redo **0a**
+- `git` not recognized → redo **0b**, restart Windows
+- `nvidia-smi` not recognized → install/update your NVIDIA drivers from <https://www.nvidia.com/Download/index.aspx>
+
+---
+
 ## 1. Prerequisites
 
 - **Python 3.10 or 3.11** — install from [python.org](https://www.python.org/downloads/) and tick "Add to PATH"
