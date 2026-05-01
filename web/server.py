@@ -37,6 +37,11 @@ DATA_DIR  = HERE / "data"
 FEEDBACK  = DATA_DIR / "feedback.json"
 BATCHES   = DATA_DIR / "batches.json"
 
+# Path to the venv interpreter that has torch + diffusers installed.
+# setup.bat builds this venv inside ai-toolkit/. Repo-relative so the
+# project works wherever it's cloned.
+VENV_PYTHON = C.ROOT / "ai-toolkit" / "venv" / "Scripts" / "python.exe"
+
 DATA_DIR.mkdir(exist_ok=True)
 for f, default in [(FEEDBACK, {}), (BATCHES, {})]:
     if not f.exists():
@@ -632,7 +637,7 @@ def run_start(character: str) -> dict:
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = logs / f"run_{ts}.txt"
 
-    venv_python = Path(r"C:\Programs\ai-toolkit\venv\Scripts\python.exe")
+    venv_python = VENV_PYTHON
     cmd = [str(venv_python), str(C.SCRIPTS / "generate.py"), "--character", character]
 
     log_f = log_path.open("w", encoding="utf-8")
@@ -804,7 +809,7 @@ def spawn_tool(tool_name: str, character: str, script_name: str) -> dict:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         log_path = logs / f"{tool_name}_{ts}.txt"
 
-        venv_python = Path(r"C:\Programs\ai-toolkit\venv\Scripts\python.exe")
+        venv_python = VENV_PYTHON
         cmd = [str(venv_python), str(C.SCRIPTS / script_name), "--character", character]
         log_f = log_path.open("w", encoding="utf-8")
         proc = subprocess.Popen(
@@ -839,7 +844,7 @@ def spawn_upscale_single(character: str, src_path: str, stem: str) -> dict:
         logs.mkdir(parents=True, exist_ok=True)
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         log_path = logs / f"upscale_one_{ts}.txt"
-        venv_python = Path(r"C:\Programs\ai-toolkit\venv\Scripts\python.exe")
+        venv_python = VENV_PYTHON
         cmd = [
             str(venv_python), str(C.SCRIPTS / "upscale.py"),
             "--character", character,
