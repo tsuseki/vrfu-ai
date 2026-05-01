@@ -1236,6 +1236,31 @@ document.querySelectorAll(".upscale-scale").forEach(el => {
   el.addEventListener("change", e => applyUpscaleScale(e.target.value));
 });
 syncUpscaleScaleInputs();
+
+// Gear button next to each Upscale button toggles a settings popover.
+// Click-outside or Esc closes any open popover.
+document.querySelectorAll(".upscale-settings-btn").forEach(btn => {
+  btn.addEventListener("click", e => {
+    e.stopPropagation();
+    const popover = btn.parentElement.querySelector(".upscale-settings-popover");
+    if (!popover) return;
+    const wasOpen = !popover.classList.contains("hidden");
+    document.querySelectorAll(".upscale-settings-popover").forEach(p => p.classList.add("hidden"));
+    if (!wasOpen) popover.classList.remove("hidden");
+  });
+});
+document.addEventListener("click", e => {
+  document.querySelectorAll(".upscale-settings-popover:not(.hidden)").forEach(p => {
+    if (!p.contains(e.target) && !e.target.classList.contains("upscale-settings-btn")) {
+      p.classList.add("hidden");
+    }
+  });
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") {
+    document.querySelectorAll(".upscale-settings-popover:not(.hidden)").forEach(p => p.classList.add("hidden"));
+  }
+});
 // Initial visibility (default tab is New / output)
 updateTabActionButtons();
 $("#toggle-stats").addEventListener("click", () => {

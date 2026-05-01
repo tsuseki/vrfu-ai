@@ -308,10 +308,43 @@ def expand_outfits(prompt: str, cfg: dict) -> str:
     return _OUTFIT_PLACEHOLDER.sub(repl, prompt)
 
 
+_SOLO_TAGS_RE = re.compile(
+    r"\b(?:1girl|solo)\b\s*,?\s*", re.IGNORECASE,
+)
+_MULTIGIRL_NEG_RE = re.compile(
+    r"\b(?:multiple\s+characters|multiple\s+girls|2girls|3girls|4girls|5girls|"
+    r"6\+girls|multiple\s+views|split\s+screen)\b\s*,?\s*", re.IGNORECASE,
+)
+
+
+def _strip_solo_tags(s: str) -> str:
+    """Remove '1girl' and 'solo' tokens from a comma-separated tag string."""
+    return re.sub(r",\s*,", ", ", _SOLO_TAGS_RE.sub("", s)).strip(", ")
+
+
+def _strip_multigirl_negatives(s: str) -> str:
+    """Remove the multi-girl/multi-view negatives so they don't fight a clone scenario."""
+    return re.sub(r",\s*,", ", ", _MULTIGIRL_NEG_RE.sub("", s)).strip(", ")
+
+
 def build_prompt(entry: dict, cfg: dict) -> tuple[str, str]:
     user_prompt = expand_outfits(entry["prompt"], cfg)
     trigger     = cfg["trigger_word"]
     char_tags   = cfg.get("character_tags", "")
+
+    # multi_girl mode: clone scenarios where multiple copies of the same
+    # character appear together. Strips "1girl, solo" from character_tags
+    # and removes the multi-girl tags from BASE_NEGATIVE so they don't
+    # fight the prompt's "(multiple girls:1.6), (Ngirls:1.6)" weighting.
+    multi_girl = bool(entry.get("multi_girl"))
+    if multi_girl and char_tags:
+        char_tags = _strip_solo_tags(char_tags)
+    elif char_tags and re.match(r"\s*(?:1girl\b|solo\b)", user_prompt, re.IGNORECASE):
+        # Convention says each user prompt also starts with "1girl, solo"
+        # for emphasis. character_tags also has them. Without this dedupe
+        # the final prompt has the pair twice. Strip from char_tags so the
+        # user prompt's copy is the authoritative one.
+        char_tags = _strip_solo_tags(char_tags)
 
     # Order: BASE_POSITIVE → trigger → character_tags → user prompt
     # so the highest-impact tags survive CLIP's 77-token cut.
@@ -326,7 +359,7 @@ def build_prompt(entry: dict, cfg: dict) -> tuple[str, str]:
             parts.append(char_tags)
         prompt = ", ".join(parts) + ", " + user_prompt
 
-    negative = BASE_NEGATIVE
+    negative = _strip_multigirl_negatives(BASE_NEGATIVE) if multi_girl else BASE_NEGATIVE
     if entry.get("negative"):
         negative = f"{negative}, {entry['negative']}"
     return prompt, negative
