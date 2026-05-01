@@ -52,7 +52,16 @@ exit /b 0
 echo.
 echo ============================================================
 echo  Download FAILED. See the error above.
-echo  Manual download: see docs/install.md for direct links.
+echo.
+echo  Most common cause: the HuggingFace mirror is gated and your
+echo  machine isn't logged in. Fall back to manual download:
+echo.
+echo    1. Visit https://civitai.red/models/827184/wai-illustrious-sdxl
+echo       (no login required)
+echo    2. Save the .safetensors file
+echo    3. Move it to checkpoints\waiIllustriousSDXL_v170.safetensors
+echo.
+echo  See docs\install.md for more options.
 echo ============================================================
 echo.
 echo Press any key to close this window.

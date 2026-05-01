@@ -35,6 +35,8 @@ launch_website.bat
 
 The `--recursive` flag pulls the bundled [ai-toolkit](https://github.com/ostris/ai-toolkit) training framework. Forgot it? `setup.bat` runs `git submodule update --init` for you.
 
+If `download_models.bat` fails with "401 Unauthorized" (the HuggingFace mirror is intermittently gated), grab `waiIllustriousSDXL_v170.safetensors` manually from <https://civitai.red/models/827184/wai-illustrious-sdxl> (no login) and drop it into `checkpoints/`. Full alternatives in [docs/install.md](docs/install.md).
+
 Then drop a LoRA your friend sent you into `loras/characters/demo_character_v1/demo_character_v1.safetensors`, edit `characters/demo_character/config.yaml` to match the LoRA's identity, click ▶️ Start in the website. See [docs/quickstart.md](docs/quickstart.md) for the full walkthrough.
 
 ## Documentation

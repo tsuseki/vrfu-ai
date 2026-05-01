@@ -50,14 +50,15 @@ The project uses **waiIllustriousSDXL v1.7.0** (~7 GB) as the base model. You ha
 download_models.bat
 ```
 
-Pulls from HuggingFace (no login required for this model). Takes 10–30 minutes depending on connection.
+Pulls from a HuggingFace mirror. Takes 10–30 minutes depending on connection. **May fail with 401 Unauthorized** — the upstream mirror is intermittently gated. If so, fall back to Option B.
 
 ### Option B — manual
 
 Download from one of these sources and put the resulting `.safetensors` file at `checkpoints/waiIllustriousSDXL_v170.safetensors`:
 
-- HuggingFace: <https://huggingface.co/John6666/wai-illustrious-sdxl-v170-sdxl> (`waiIllustriousSDXL_v170.safetensors`)
-- Civitai: <https://civitai.com/models/827184/wai-illustrious-sdxl> (Civitai requires login)
+- **civitai.red mirror (no login)**: <https://civitai.red/models/827184/wai-illustrious-sdxl> — easiest path
+- Civitai original: <https://civitai.com/models/827184/wai-illustrious-sdxl> (requires Civitai account)
+- HuggingFace: <https://huggingface.co/John6666/wai-illustrious-sdxl-v170-sdxl> (often gated; needs HF login + accept-terms)
 
 After downloading, the file structure should look like:
 ```
