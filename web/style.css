@@ -554,6 +554,10 @@ button.danger-btn:hover { border-color: var(--danger); }
 }
 .prompt-box::-webkit-scrollbar { width: 6px; }
 .prompt-box::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+.preview-row { margin-top: 6px; }
+.preview-label { display: block; margin-bottom: 2px; font-size: 11px; }
+.negative-details { margin-top: 4px; }
+.negative-box { color: var(--fg-dim); }
 
 /* ── Pagination ──────────────────────────────────────────────────────── */
 .pagination {

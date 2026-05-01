@@ -260,9 +260,15 @@
       <textarea id="add-prompt" rows="5" placeholder="artist:hiten, 1girl, solo, heart hands, ..."></textarea>
     </label>
 
-    <label>Negative prompt <span class="muted">(optional — overrides the project default)</span>
-      <textarea id="add-negative" rows="3" placeholder="leave empty to use the global default (BASE_NEGATIVE in generate.py)"></textarea>
+    <label>Negative prompt <span class="muted">(optional — appended on top of the project default)</span>
+      <textarea id="add-negative" rows="3" placeholder="extra negatives — leave empty to just use BASE_NEGATIVE"></textarea>
     </label>
+
+    <details id="add-preview-details" class="prompt-details">
+      <summary>🔍 Full prompt preview <span class="muted">(what gets sent to the model)</span></summary>
+      <div class="preview-row"><span class="muted preview-label">positive:</span><div id="add-preview-positive" class="prompt-box"></div></div>
+      <div class="preview-row"><span class="muted preview-label">negative:</span><div id="add-preview-negative" class="prompt-box"></div></div>
+    </details>
 
     <div class="quick-pick">
       <div class="quick-pick-row">
@@ -399,6 +405,10 @@
         <details class="prompt-details" open>
           <summary>📝 prompt</summary>
           <div class="prompt-box"></div>
+        </details>
+        <details class="prompt-details negative-details">
+          <summary>🚫 negative</summary>
+          <div class="negative-box prompt-box"></div>
         </details>
         <textarea class="comment" placeholder="Comment…" rows="2"></textarea>
       </div>

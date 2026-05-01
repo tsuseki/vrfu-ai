@@ -30,6 +30,7 @@ import yaml
 # Pull shared paths + activity logger from scripts/
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 import _common as C  # noqa: E402
+import prompt_build  # noqa: E402
 
 PORT      = 8765
 HERE      = Path(__file__).parent
@@ -1224,6 +1225,29 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/stats/global":
             return self._send_json(aggregate_stats_global())
+
+        if path == "/api/prompt-preview":
+            character = char or (C.list_characters() or ["tsu_chocola"])[0]
+            user_prompt = qs.get("prompt", [""])[0] or ""
+            user_negative = qs.get("negative", [""])[0] or ""
+            cfg_path = C.character_dir(character) / "config.yaml"
+            cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) if cfg_path.exists() else {}
+            entry = {"prompt": user_prompt, "negative": user_negative}
+            try:
+                full_prompt, full_negative = prompt_build.build_prompt(entry, cfg)
+                return self._send_json({
+                    "ok": True,
+                    "prompt": full_prompt,
+                    "negative": full_negative,
+                    "user_prompt": user_prompt,
+                    "user_negative": user_negative,
+                    "base_positive": prompt_build.BASE_POSITIVE,
+                    "base_negative": prompt_build.BASE_NEGATIVE,
+                    "trigger": cfg.get("trigger_word", ""),
+                    "character_tags": cfg.get("character_tags", ""),
+                })
+            except prompt_build.OutfitNotFoundError as e:
+                return self._send_json({"ok": False, "err": str(e)}, 400)
 
         if path == "/api/batches":
             character = char or (C.list_characters() or ["tsu_chocola"])[0]

@@ -336,6 +336,7 @@ function addPromptModalOpen(prefill) {
   $("#add-label").value    = prefill.label    || "";
   $("#add-prompt").value   = prefill.prompt   || "";
   $("#add-negative").value = prefill.negative || "";
+  refreshPromptPreview();
   // Pick resolution radio
   const res = resolutionFromDims(prefill.width, prefill.height);
   $$("#modal-add input[name=resolution]").forEach(r => r.checked = (r.value === res));
@@ -353,6 +354,36 @@ function addPromptModalOpen(prefill) {
   $("#modal-add").classList.remove("hidden");
   populateQuickArtists();
   setTimeout(() => $("#add-prompt").focus(), 50);
+}
+
+// Debounced fetch of /api/prompt-preview so the user can see what actually
+// gets sent to the model (BASE_POSITIVE + trigger + character_tags + their
+// prompt with {outfit} expanded). Updates as they type.
+let _previewTimer = null;
+async function refreshPromptPreview() {
+  clearTimeout(_previewTimer);
+  _previewTimer = setTimeout(async () => {
+    if (!state.character) return;
+    const userPrompt   = $("#add-prompt").value;
+    const userNegative = $("#add-negative").value;
+    const params = new URLSearchParams({
+      character: state.character,
+      prompt:    userPrompt,
+      negative:  userNegative,
+    });
+    try {
+      const r = await api(`/api/prompt-preview?${params}`);
+      if (r.ok === false) {
+        $("#add-preview-positive").textContent = `(error: ${r.err})`;
+        $("#add-preview-negative").textContent = "";
+        return;
+      }
+      $("#add-preview-positive").textContent = r.prompt || "(empty)";
+      $("#add-preview-negative").textContent = r.negative || "(empty)";
+    } catch (e) {
+      $("#add-preview-positive").textContent = `(preview failed: ${e})`;
+    }
+  }, 250);
 }
 
 async function populateQuickArtists() {
@@ -469,6 +500,14 @@ async function addPromptModalSave() {
   loadQueue();
 }
 
+// Live-refresh the preview as the user edits prompt/negative or clicks chips
+document.addEventListener("DOMContentLoaded", () => {
+  ["add-prompt", "add-negative"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener("input", refreshPromptPreview);
+  });
+});
+
 // Append a tag to the prompt textarea (no double-add)
 function appendTagToPrompt(tag) {
   const ta = $("#add-prompt");
@@ -481,6 +520,7 @@ function appendTagToPrompt(tag) {
   const newTag = newParts.join(", ");
   ta.value = cur ? `${cur}, ${newTag}` : newTag;
   ta.focus();
+  refreshPromptPreview();
 }
 async function importYAMLModalSave() {
   const yaml = $("#import-yaml").value;
@@ -1002,6 +1042,11 @@ function renderGrid(images) {
     ta.addEventListener("input", () => { clearTimeout(saveTimer); saveTimer = setTimeout(save, 1500); });
 
     card.querySelector(".prompt-box").textContent = img.prompt || "";
+    const negBox = card.querySelector(".negative-box");
+    if (negBox) {
+      negBox.textContent = img.negative || "(uses BASE_NEGATIVE default)";
+      if (!img.negative) negBox.classList.add("muted");
+    }
 
     card.querySelector(".thumb-wrap").addEventListener("click", e => {
       if (e.target.classList.contains("card-id") || e.target.classList.contains("location-badge")) return;
