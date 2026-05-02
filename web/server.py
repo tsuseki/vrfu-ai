@@ -587,13 +587,12 @@ class QueueParseError(Exception):
         self.path = path
 
 
-def load_queue(character: str | None = None) -> list[dict]:
-    """Load the unified project-level queue.
+def load_queue() -> list[dict]:
+    """Load the full unified project-level queue.
 
-    The `character` parameter is kept for backwards-compatibility with the
-    old per-character API. Pass None or "all" for the full unified queue.
-    Pass a character name to filter to entries routing to that character
-    (used by some legacy code paths; mostly callers should pass None now).
+    No filtering — every caller wants every entry now that the queue is
+    unified. If a UI ever needs a character-filtered view it should filter
+    client-side on the response.
     """
     p = C.UNIFIED_QUEUE
     if not p.exists():
@@ -602,10 +601,7 @@ def load_queue(character: str | None = None) -> list[dict]:
         raw = yaml.safe_load(p.read_text(encoding="utf-8")) or []
     except yaml.YAMLError as e:
         raise QueueParseError(str(e), p) from e
-    entries = [e for e in raw if isinstance(e, dict)]
-    if character and character != "all":
-        entries = [e for e in entries if e.get("character") == character]
-    return entries
+    return [e for e in raw if isinstance(e, dict)]
 
 
 # ThreadingHTTPServer means concurrent POSTs land on different threads;
@@ -615,25 +611,15 @@ def load_queue(character: str | None = None) -> list[dict]:
 _queue_save_lock = threading.Lock()
 
 
-def save_queue(character_or_entries, entries=None) -> None:
-    """Atomic + serialised write.
-
-    Saves the unified queue. The signature accepts (character, entries) for
-    backwards-compatibility with the old per-character call sites, but the
-    character is now ignored — there's only one queue.
+def save_queue(entries: list[dict]) -> None:
+    """Atomic + serialised write of the unified queue.
 
     Concurrency: under _queue_save_lock so two threads can't race on the
     same .tmp filename and produce a half-written file.
 
-    Atomicity: writes to queue.yaml.tmp (per-thread unique via NamedTemporary
-    is unnecessary because the lock already serialises us), then os.replace()s
-    onto the final path. Atomic on Windows + POSIX.
+    Atomicity: writes to queue.yaml.tmp, then os.replace() onto the final
+    path. Atomic on Windows + POSIX.
     """
-    # Two call signatures: save_queue(entries) or save_queue(character, entries).
-    # Old per-character form is kept working but ignores the character.
-    if entries is None:
-        # Single-arg form: just entries
-        entries = character_or_entries
     p = C.UNIFIED_QUEUE
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix(p.suffix + ".tmp")
@@ -1356,15 +1342,17 @@ class Handler(BaseHTTPRequestHandler):
 
         # ── Queue ───────────────────────────────────────────────────────────
         if path == "/api/queue":
-            character = char or (C.list_characters() or ["tsu_chocola"])[0]
-            return self._send_json({"queue": load_queue(character)})
+            # Unified queue — return everything. Older API took ?character=
+            # to filter, but the UI now always wants the full set.
+            return self._send_json({"queue": load_queue()})
 
         if path == "/api/queue/export":
-            character = char or (C.list_characters() or ["tsu_chocola"])[0]
-            p = C.queue_file(character)
+            # Export the unified queue. Filename is just queue.yaml since
+            # entries route per-character via the `character:` field.
+            p = C.UNIFIED_QUEUE
             self.send_response(200)
             self.send_header("Content-Type", "text/yaml; charset=utf-8")
-            self.send_header("Content-Disposition", f'attachment; filename="queue_{character}.yaml"')
+            self.send_header("Content-Disposition", 'attachment; filename="queue.yaml"')
             self.end_headers()
             self.wfile.write(p.read_bytes() if p.exists() else b"# empty\n")
             return
