@@ -1000,36 +1000,38 @@ async function clearQueue() {
 let _activeJob = null;
 
 async function startRun() {
-  const orderSel = $("#run-order");
-  const order    = orderSel ? orderSel.value : "character";
-
-  // If user picked "Use queue order" and the queue is interleaved across
-  // characters, warn before starting — that means many LoRA switches.
-  if (order === "original") {
-    try {
-      const { queue } = await api(`/api/queue`);
-      const targets = queue.map(e => e.character || state.character || "");
-      let switches = 0;
-      const unique = new Set(targets);
-      for (let i = 1; i < targets.length; i++) {
-        if (targets[i] !== targets[i - 1]) switches++;
-      }
-      if (unique.size > 1 && switches >= 2) {
-        const msg = `Queue has ${unique.size} characters interleaved — ` +
-                    `running in queue order will trigger ${switches} LoRA ` +
-                    `switches (~3-5s each, ~${Math.round(switches * 4)}s total).\n\n` +
-                    `Sort by character to coalesce to ${unique.size - 1} switches.\n\n` +
-                    `Continue with queue order anyway?`;
-        if (!confirm(msg)) return;
-      }
-    } catch (e) {
-      console.warn("pre-run queue check failed", e);
+  // Always run in queue order. If you want clustering by character, use
+  // the 🔀 Sort by character button in the queue toolbar before starting.
+  // Pre-run warning: if the queue is interleaved across characters, count
+  // the LoRA switches the user is about to incur and offer to sort first.
+  try {
+    const { queue } = await api(`/api/queue`);
+    const targets = queue.map(e => e.character || state.character || "");
+    let switches = 0;
+    const unique = new Set(targets);
+    for (let i = 1; i < targets.length; i++) {
+      if (targets[i] !== targets[i - 1]) switches++;
     }
+    if (unique.size > 1 && switches >= 2) {
+      const msg = `Queue has ${unique.size} characters interleaved — ` +
+                  `${switches} LoRA switches (~3-5s each, ~${Math.round(switches * 4)}s total).\n\n` +
+                  `Click "🔀 Sort by character" first to coalesce to ${unique.size - 1} switches.\n\n` +
+                  `Start anyway with the current order?`;
+      if (!confirm(msg)) return;
+    }
+  } catch (e) {
+    console.warn("pre-run queue check failed", e);
   }
 
-  const r = await postJSON("/api/run/start", { character: state.character, order });
+  // Always pass --order=original to generate.py — the run respects whatever
+  // order the queue file is in, which is the order the user has explicitly
+  // set via the Sort button + drag-and-drop.
+  const r = await postJSON("/api/run/start", {
+    character: state.character,
+    order:     "original",
+  });
   if (!r.ok) { toast("Cannot start: " + r.err); return; }
-  toast(`Run started (${order === "character" ? "sorted by character" : "queue order"})`);
+  toast("Run started");
   _activeJob = "generate";
   pollRunStatus();
 }

@@ -52,13 +52,7 @@
   <div class="run-banner" id="run-banner">
     <div class="run-banner-row">
       <button id="run-start"     class="run-btn primary">▶️ Start run</button>
-      <label class="run-order-label">Order
-        <select id="run-order">
-          <option value="character">Sort by character</option>
-          <option value="original">Use queue order</option>
-        </select>
-      </label>
-      <div class="char-order-wrap" title="Order characters take their turns when sorting / running. Drag to reorder.">
+      <div class="char-order-wrap" title="Order characters take their turns when sorting. Drag to reorder. The 🔀 Sort by character button (queue toolbar) uses this order.">
         <span class="muted">Character order:</span>
         <div id="char-order-chips" class="char-order-chips"></div>
       </div>
@@ -282,7 +276,7 @@
     </label>
 
     <label>Character <span class="muted">(routes to that character's LoRA + output folder)</span>
-      <select id="add-character"><option value="">— pick a character —</option></select>
+      <select id="add-character"><option value="" disabled selected>— pick a character —</option></select>
     </label>
 
     <label>Prompt (comma-separated tags)

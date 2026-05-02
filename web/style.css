@@ -576,13 +576,6 @@ button.danger-btn:hover { border-color: var(--danger); }
 .queue-table .drag-handle  { user-select: none; cursor: grab; }
 .queue-table tr.dragging .drag-handle { cursor: grabbing; }
 
-/* ── Run-order picker (next to Start run) ─────────────────────────── */
-.run-order-label {
-  display: inline-flex; align-items: center; gap: 6px;
-  margin: 0 8px;
-  font-size: 12px; color: var(--fg-dim);
-}
-
 /* ── Character order chips (drag-reorderable, drives sort precedence) ── */
 .char-order-wrap {
   display: inline-flex; align-items: center; gap: 8px;
