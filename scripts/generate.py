@@ -433,8 +433,14 @@ def main() -> None:
                               "original: respect queue file order verbatim."))
     args = parser.parse_args()
 
+    # Run target is a fallback for entries that don't specify `character:`.
+    # Mostly cosmetic now that the queue is unified — every entry in a
+    # well-formed queue has its own character set. Kept for compat with old
+    # entries that came from per-character queues before migration.
     run_target = C.resolve_default_character(args.character)
-    queue_path = C.queue_file(run_target)
+    # Unified queue lives at the project root, not per-character.
+    C.migrate_per_character_queues_if_needed()
+    queue_path = C.UNIFIED_QUEUE
 
     # Per-character context cache. Run-target loaded eagerly; others
     # populated lazily when an entry first routes to them.

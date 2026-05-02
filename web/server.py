@@ -587,15 +587,25 @@ class QueueParseError(Exception):
         self.path = path
 
 
-def load_queue(character: str) -> list[dict]:
-    p = C.queue_file(character)
+def load_queue(character: str | None = None) -> list[dict]:
+    """Load the unified project-level queue.
+
+    The `character` parameter is kept for backwards-compatibility with the
+    old per-character API. Pass None or "all" for the full unified queue.
+    Pass a character name to filter to entries routing to that character
+    (used by some legacy code paths; mostly callers should pass None now).
+    """
+    p = C.UNIFIED_QUEUE
     if not p.exists():
         return []
     try:
         raw = yaml.safe_load(p.read_text(encoding="utf-8")) or []
     except yaml.YAMLError as e:
         raise QueueParseError(str(e), p) from e
-    return [e for e in raw if isinstance(e, dict)]
+    entries = [e for e in raw if isinstance(e, dict)]
+    if character and character != "all":
+        entries = [e for e in entries if e.get("character") == character]
+    return entries
 
 
 # ThreadingHTTPServer means concurrent POSTs land on different threads;
@@ -605,17 +615,26 @@ def load_queue(character: str) -> list[dict]:
 _queue_save_lock = threading.Lock()
 
 
-def save_queue(character: str, entries: list[dict]) -> None:
+def save_queue(character_or_entries, entries=None) -> None:
     """Atomic + serialised write.
+
+    Saves the unified queue. The signature accepts (character, entries) for
+    backwards-compatibility with the old per-character call sites, but the
+    character is now ignored — there's only one queue.
 
     Concurrency: under _queue_save_lock so two threads can't race on the
     same .tmp filename and produce a half-written file.
 
-    Atomicity: writes to <name>.yaml.tmp (per-thread unique via NamedTemporary
+    Atomicity: writes to queue.yaml.tmp (per-thread unique via NamedTemporary
     is unnecessary because the lock already serialises us), then os.replace()s
     onto the final path. Atomic on Windows + POSIX.
     """
-    p = C.queue_file(character)
+    # Two call signatures: save_queue(entries) or save_queue(character, entries).
+    # Old per-character form is kept working but ignores the character.
+    if entries is None:
+        # Single-arg form: just entries
+        entries = character_or_entries
+    p = C.UNIFIED_QUEUE
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix(p.suffix + ".tmp")
     with _queue_save_lock:
@@ -705,8 +724,8 @@ def _watch_run(proc: subprocess.Popen, log_path: Path) -> None:
     _run_proc = None
 
 
-def run_start(character: str) -> dict:
-    """Spawn `python scripts/generate.py --character <name>` as a subprocess."""
+def run_start(character: str, order: str = "character") -> dict:
+    """Spawn `python scripts/generate.py --character <name> --order <order>` as a subprocess."""
     global _run_proc
     if _run_proc is not None and _run_proc.poll() is None:
         return {"ok": False, "err": "A run is already in progress."}
@@ -724,7 +743,10 @@ def run_start(character: str) -> dict:
     log_path = logs / f"run_{ts}.txt"
 
     venv_python = VENV_PYTHON
-    cmd = [str(venv_python), str(C.SCRIPTS / "generate.py"), "--character", character]
+    if order not in ("character", "original"):
+        order = "character"
+    cmd = [str(venv_python), str(C.SCRIPTS / "generate.py"),
+           "--character", character, "--order", order]
 
     log_f = log_path.open("w", encoding="utf-8")
     proc = subprocess.Popen(
@@ -1524,25 +1546,22 @@ class Handler(BaseHTTPRequestHandler):
 
         # ── Queue mutations ─────────────────────────────────────────────────
         if path == "/api/queue/add":
-            character = body.get("character")
+            # `character` here is the entry's target (which LoRA to load).
+            # In the old per-character queue model it was the "queue owner"
+            # but with the unified queue it just becomes entry["character"].
+            character = body.get("character_override") or body.get("character")
             if not character:
                 return self._send_json({"ok": False, "err": "missing character"}, 400)
-            entries = load_queue(character)
+            entries = load_queue()  # unified queue — full set, not filtered
             existing = {e.get("label", "") for e in entries}
             label    = body.get("label") or "untitled"
             label    = make_unique_label(re.sub(r"[^a-zA-Z0-9_-]+", "-", label).strip("-"), existing)
-            new_entry = {"label": label, "prompt": body.get("prompt", "").strip()}
+            new_entry = {"label": label, "character": character, "prompt": body.get("prompt", "").strip()}
             for k in ("width", "height", "seed", "steps", "guidance", "negative"):
                 if body.get(k) not in (None, ""):
                     new_entry[k] = body[k]
-            # body["character"] is the queue OWNER (which queue.yaml to write to).
-            # body["character_override"] is the optional per-entry routing
-            # override — gets stored as entry["character"] so generate.py
-            # routes that entry to a different LoRA/output folder.
-            if body.get("character_override"):
-                new_entry["character"] = body["character_override"]
             entries.insert(0, new_entry)   # PREPEND so it runs next
-            save_queue(character, entries)
+            save_queue(entries)
             C.log_event("queue_added", character=character, label=label)
             return self._send_json({"ok": True, "label": label, "count": len(entries)})
 
@@ -1550,7 +1569,7 @@ class Handler(BaseHTTPRequestHandler):
             character = body.get("character")
             label     = body.get("label")
             fields    = body.get("fields", {})
-            entries = load_queue(character)
+            entries = load_queue()  # unified queue — full set, not filtered
             # If the label is being changed, ensure it's unique (rename collisions get suffixed).
             new_label = fields.get("label")
             if new_label and new_label != label:
@@ -1570,14 +1589,14 @@ class Handler(BaseHTTPRequestHandler):
                     break
             if not found:
                 return self._send_json({"ok": False, "err": "label not found"}, 404)
-            save_queue(character, entries)
+            save_queue(entries)
             C.log_event("queue_updated", character=character, label=label)
             return self._send_json({"ok": True, "label": fields.get("label", label)})
 
         if path == "/api/queue/duplicate":
             character = body.get("character")
             label     = body.get("label")
-            entries = load_queue(character)
+            entries = load_queue()  # unified queue — full set, not filtered
             existing = {e.get("label", "") for e in entries}
             for i, e in enumerate(entries):
                 if e.get("label") == label:
@@ -1586,7 +1605,7 @@ class Handler(BaseHTTPRequestHandler):
                     copy["label"] = make_unique_label(base, existing)
                     # Insert right after the original
                     entries.insert(i + 1, copy)
-                    save_queue(character, entries)
+                    save_queue(entries)
                     C.log_event("queue_duplicated", character=character,
                                 source=label, new_label=copy["label"])
                     return self._send_json({"ok": True, "label": copy["label"]})
@@ -1595,22 +1614,22 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/queue/delete":
             character = body.get("character")
             labels    = set(body.get("labels", []))
-            entries = [e for e in load_queue(character) if e.get("label") not in labels]
-            save_queue(character, entries)
+            entries = [e for e in load_queue() if e.get("label") not in labels]
+            save_queue(entries)
             C.log_event("queue_deleted", character=character, labels=list(labels))
             return self._send_json({"ok": True, "remaining": len(entries)})
 
         if path == "/api/queue/reorder":
             character = body.get("character")
             order     = body.get("labels", [])
-            entries = load_queue(character)
+            entries = load_queue()  # unified queue — full set, not filtered
             by_label = {e.get("label"): e for e in entries}
             reordered = [by_label[l] for l in order if l in by_label]
             # Append any missing ones at the end
             for e in entries:
                 if e.get("label") not in order:
                     reordered.append(e)
-            save_queue(character, reordered)
+            save_queue(reordered)
             return self._send_json({"ok": True})
 
         if path == "/api/queue/clear":
@@ -1618,7 +1637,7 @@ class Handler(BaseHTTPRequestHandler):
             confirm   = body.get("confirm")
             if confirm != True:
                 return self._send_json({"ok": False, "err": "confirm flag required"}, 400)
-            save_queue(character, [])
+            save_queue([])
             C.log_event("queue_cleared", character=character)
             return self._send_json({"ok": True})
 
@@ -1652,7 +1671,7 @@ class Handler(BaseHTTPRequestHandler):
                 parsed = [e for e in parsed if isinstance(e, dict) and e.get("label") and e.get("prompt")]
             except Exception as e:
                 return self._send_json({"ok": False, "err": f"YAML parse: {e}"}, 400)
-            entries = load_queue(character)
+            entries = load_queue()  # unified queue — full set, not filtered
             existing = {e.get("label", "") for e in entries}
             added = 0
             for e in parsed:
@@ -1660,16 +1679,30 @@ class Handler(BaseHTTPRequestHandler):
                 existing.add(e["label"])
                 entries.append(e)
                 added += 1
-            save_queue(character, entries)
+            save_queue(entries)
             C.log_event("queue_imported", character=character, added=added)
             return self._send_json({"ok": True, "added": added, "total": len(entries)})
 
         # ── Run controls ────────────────────────────────────────────────────
+        if path == "/api/queue/sort-by-character":
+            entries = load_queue()
+            # Stable group-by-character: preserve relative order within each
+            # character so the user's intra-character ordering is kept.
+            buckets: dict = {}
+            for e in entries:
+                buckets.setdefault(e.get("character") or "", []).append(e)
+            sorted_entries: list = []
+            for cname in sorted(buckets.keys()):
+                sorted_entries.extend(buckets[cname])
+            save_queue(sorted_entries)
+            return self._send_json({"ok": True, "count": len(sorted_entries)})
+
         if path == "/api/run/start":
             character = body.get("character")
+            order     = body.get("order", "character")
             if not character:
                 return self._send_json({"ok": False, "err": "missing character"}, 400)
-            return self._send_json(run_start(character))
+            return self._send_json(run_start(character, order=order))
 
         if path == "/api/run/stop":
             return self._send_json(run_stop())
@@ -1808,6 +1841,18 @@ def run() -> None:
             sys.stderr.reconfigure(encoding="utf-8")
         except Exception:
             pass
+    # One-time migration: if there's no project-level queue.yaml but per-
+    # character queue.yaml files exist, merge them. Idempotent — safe even if
+    # the unified file already exists (function checks first thing).
+    try:
+        before = C.UNIFIED_QUEUE.exists()
+        C.migrate_per_character_queues_if_needed()
+        if not before and C.UNIFIED_QUEUE.exists():
+            print(f"  ✨ Migrated per-character queues into {C.UNIFIED_QUEUE.name}")
+            print(f"     (old per-character files renamed to *.legacy_per_char)\n")
+    except Exception as e:
+        print(f"  ⚠️ Queue migration failed: {e}\n")
+
     srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     print(f"\n  vrfu-ai - local web UI")
     print(f"  http://localhost:{PORT}")

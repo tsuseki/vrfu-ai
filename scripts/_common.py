@@ -159,4 +159,64 @@ def archive_dir(character: str) -> Path:       return char_dir(character) / "arc
 def logs_dir(character: str) -> Path:          return char_dir(character) / "logs"
 def queue_file(character: str) -> Path:        return char_dir(character) / "queue.yaml"
 def done_file(character: str) -> Path:         return char_dir(character) / "archive" / "done.yaml"
+
+
+# ─── Unified queue ──────────────────────────────────────────────────────────
+# Single project-level queue.yaml that holds entries for all characters. Each
+# entry's `character:` field routes it to the right LoRA + output folder.
+# Replaces the previous per-character queue.yaml model. Per-character done.yaml
+# files (the archive of completed runs) stay per-character — only the *pending*
+# queue is unified.
+UNIFIED_QUEUE = ROOT / "queue.yaml"
+
+
+def migrate_per_character_queues_if_needed() -> None:
+    """If UNIFIED_QUEUE doesn't exist but per-character queue.yaml files do,
+    merge them into the unified file. Each entry gets `character: <name>`
+    set if missing. Per-character files are renamed to `.legacy_per_char`
+    so users can recover them but they no longer take effect.
+
+    Idempotent — safe to call repeatedly. Only runs if the unified file
+    is missing.
+    """
+    if UNIFIED_QUEUE.exists():
+        return
+    merged: list[dict] = []
+    sources: list[Path] = []
+    for cname in list_characters():
+        qf = queue_file(cname)
+        if not qf.exists():
+            continue
+        try:
+            raw = yaml.safe_load(qf.read_text(encoding="utf-8")) or []
+        except Exception:
+            continue
+        for entry in raw:
+            if not isinstance(entry, dict):
+                continue
+            if not entry.get("character"):
+                entry["character"] = cname
+            merged.append(entry)
+        sources.append(qf)
+    # Write the unified file (header + entries) even if empty — pins our
+    # ownership of the path so subsequent runs don't re-migrate.
+    header = (
+        "# UNIFIED PROMPT QUEUE\n"
+        "# Each entry routes to a character via its `character:` field.\n"
+        "# Add prompts via the website (Generation tab → ➕ Add prompt).\n"
+        "# Completed entries move to characters/<character>/archive/done.yaml.\n"
+        "# See docs/DATA_FORMATS.md for full field reference.\n"
+        "\n"
+    )
+    UNIFIED_QUEUE.write_text(header, encoding="utf-8")
+    if merged:
+        with UNIFIED_QUEUE.open("a", encoding="utf-8") as f:
+            yaml.dump(merged, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
+    # Rename old per-character queue files so they don't get re-loaded.
+    for qf in sources:
+        legacy = qf.with_suffix(qf.suffix + ".legacy_per_char")
+        try:
+            qf.rename(legacy)
+        except Exception:
+            pass
 def upscaled_log_file(character: str) -> Path: return char_dir(character) / "archive" / "upscaled.yaml"

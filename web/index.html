@@ -53,6 +53,12 @@
   <div class="run-banner" id="run-banner">
     <div class="run-banner-row">
       <button id="run-start"     class="run-btn primary">▶️ Start run</button>
+      <label class="run-order-label">Order
+        <select id="run-order">
+          <option value="character">Sort by character</option>
+          <option value="original">Use queue order</option>
+        </select>
+      </label>
       <span class="upscale-group">
         <button id="run-upscale" class="run-btn">🔼 Upscale liked</button>
         <button class="upscale-settings-btn run-btn" type="button" title="Upscale settings">⚙</button>
@@ -98,7 +104,8 @@
   <div class="queue-toolbar">
     <h2>Queue (<span id="queue-count">0</span>)</h2>
     <button id="queue-add">➕ Add prompt</button>
-    <button id="queue-shuffle" title="Randomize the order of pending prompts">🔀 Shuffle</button>
+    <button id="queue-sort-character" title="Group consecutive same-character entries together so the model doesn't switch LoRAs in between">🔀 Sort by character</button>
+    <button id="queue-shuffle" title="Randomize the order of pending prompts">🎲 Shuffle</button>
     <button id="queue-import">📥 Import YAML</button>
     <button id="queue-export">📤 Export YAML</button>
     <button id="queue-clear" class="danger-btn">🗑 Clear queue</button>

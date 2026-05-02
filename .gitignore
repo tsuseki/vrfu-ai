@@ -8,6 +8,9 @@ checkpoints/*.ckpt
 loras/**/*.safetensors
 loras/**/*.pt
 loras/**/optimizer.pt
+loras/**/samples/
+loras/**/*.jpg
+loras/**/*.png
 upscalers/*.pth
 upscalers/*.safetensors
 

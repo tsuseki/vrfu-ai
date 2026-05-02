@@ -539,16 +539,37 @@ and verify the outfit's tags appear in the training set captions
 (or close enough — outfit doesn't need exact training match like
 identity does, but consistency helps).
 
-### 9.10 Negatives are global by default
+### 9.10 Negative layering: global → per-character → per-prompt
 
-`generate.py`'s `BASE_NEGATIVE` covers the cases that matter for this
-project: quality, anatomy, text/marks, 3D-source kill, multi-figure,
-identity protection (e.g., `white tail tip, two-tone tail`).
+There are three layers of negatives, composed at runtime in this order:
 
-**Don't repeat these in per-prompt negatives.** Only override `negative:`
-on a queue entry if you need a *different* set — e.g., explicit prompts
-where `cum, semen, fluids` shouldn't be in negative, or a clone scenario
-where multi-figure protections must be stripped (via `multi_girl: true`).
+1. **`BASE_NEGATIVE`** in `prompt_build.py` — applies to every character.
+   Quality, anatomy, text/marks, 3D-source kill (VRChat / MMD / render),
+   multi-figure protection. Do NOT add character-specific negatives here.
+
+2. **`negative_tags`** in each character's `config.yaml` — appended for
+   that character only. Use for identity-protection tags that fight
+   that character's specific training artifacts (e.g. tsu_chocola has
+   `white tail tip, two-tone tail, multicolored tail` because some
+   training shots had a shader artifact on the tail tip).
+
+   **Critical: do NOT put a negative here that the character actually has.**
+   Cocoa has multicolored hair and a striped tail — putting "multicolored
+   tail" in her negative_tags would fight her identity. The rule of
+   thumb: if the character_tags includes a feature, never put a similar
+   tag in negative_tags.
+
+3. **`negative:`** on a queue entry — appended for that single prompt.
+   Use for one-off cases like "no cum/fluids on this otherwise-explicit
+   shot" or "no rim lighting on this kitchen scene."
+
+**Don't repeat tags across layers.** If `BASE_NEGATIVE` already has
+`bad anatomy`, don't add it to `negative_tags` or per-prompt — the
+duplicate just consumes attention without strengthening the effect.
+
+For multi-girl clone scenarios set `multi_girl: true` on the entry —
+that strips the multi-figure protections from `BASE_NEGATIVE` for
+that prompt only.
 
 ### 9.11 Resolution defaults
 

@@ -272,9 +272,9 @@ async function loadCharacterInfo() {
 
 // ── Generation: queue ─────────────────────────────────────────────────────
 async function loadQueue() {
-  if (!state.character) return;
-  loadCharacterInfo();   // refresh model/LoRA banner alongside the queue
-  const { queue } = await api(`/api/queue?character=${encodeURIComponent(state.character)}`);
+  loadCharacterInfo();   // refresh model/LoRA banner for active character
+  // Unified queue — fetch all entries, not character-filtered.
+  const { queue } = await api(`/api/queue`);
   $("#queue-count").textContent = queue.length;
   const tbody = $("#queue-tbody");
   tbody.innerHTML = "";
@@ -286,6 +286,8 @@ async function loadQueue() {
 
   queue.forEach((entry, idx) => {
     const tr = document.createElement("tr");
+    tr.draggable = true;
+    tr.dataset.label = entry.label;
     const dim = (entry.width || 1024) + "×" + (entry.height || 1024);
     const promptTrunc = (entry.prompt || "").slice(0, 90)
       + ((entry.prompt || "").length > 90 ? "…" : "");
@@ -307,7 +309,7 @@ async function loadQueue() {
     const topBtn  = idx === 0 ? "" : `<button class="row-btn" data-action="top"  data-label="${lbl}" title="Move to top">⤒</button>`;
 
     tr.innerHTML = `
-      <td class="muted">${idxLabel}</td>
+      <td class="muted drag-handle" title="Drag to reorder">⠿ ${idxLabel}</td>
       <td class="mono">${lbl}${isActive ? ' <span class="active-badge">generating</span>' : ""}</td>
       <td>${charDisplay}</td>
       <td class="muted">${dim}</td>
@@ -320,6 +322,48 @@ async function loadQueue() {
         <button class="row-btn row-btn-danger" data-action="delete" data-label="${lbl}" title="Delete">🗑</button>
       </td>`;
     tbody.appendChild(tr);
+  });
+
+  // Drag-and-drop reordering. Uses HTML5 native API. On drop we compute the
+  // new label order from the live DOM and POST /api/queue/reorder.
+  let _dragLabel = null;
+  tbody.querySelectorAll("tr").forEach(tr => {
+    tr.addEventListener("dragstart", e => {
+      _dragLabel = tr.dataset.label;
+      tr.classList.add("dragging");
+      e.dataTransfer.effectAllowed = "move";
+      // Firefox needs setData to start drag
+      try { e.dataTransfer.setData("text/plain", tr.dataset.label); } catch (_) {}
+    });
+    tr.addEventListener("dragend", () => {
+      tr.classList.remove("dragging");
+      tbody.querySelectorAll("tr.drag-over").forEach(t => t.classList.remove("drag-over"));
+    });
+    tr.addEventListener("dragover", e => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      tr.classList.add("drag-over");
+    });
+    tr.addEventListener("dragleave", () => {
+      tr.classList.remove("drag-over");
+    });
+    tr.addEventListener("drop", async e => {
+      e.preventDefault();
+      tr.classList.remove("drag-over");
+      const droppedOn = tr.dataset.label;
+      if (!_dragLabel || _dragLabel === droppedOn) return;
+      // Compute new order: insert dragged label *before* the dropped-on row
+      const labels = queue.map(en => en.label);
+      const fromIdx = labels.indexOf(_dragLabel);
+      let toIdx = labels.indexOf(droppedOn);
+      if (fromIdx < 0 || toIdx < 0) return;
+      labels.splice(fromIdx, 1);
+      // After removing fromIdx, toIdx may need to shift if the removed was earlier
+      if (fromIdx < toIdx) toIdx--;
+      labels.splice(toIdx, 0, _dragLabel);
+      await postJSON("/api/queue/reorder", { character: state.character, labels });
+      loadQueue();
+    });
   });
 
   // Reorder buttons
@@ -655,9 +699,36 @@ async function clearQueue() {
 let _activeJob = null;
 
 async function startRun() {
-  const r = await postJSON("/api/run/start", { character: state.character });
+  const orderSel = $("#run-order");
+  const order    = orderSel ? orderSel.value : "character";
+
+  // If user picked "Use queue order" and the queue is interleaved across
+  // characters, warn before starting — that means many LoRA switches.
+  if (order === "original") {
+    try {
+      const { queue } = await api(`/api/queue`);
+      const targets = queue.map(e => e.character || state.character || "");
+      let switches = 0;
+      const unique = new Set(targets);
+      for (let i = 1; i < targets.length; i++) {
+        if (targets[i] !== targets[i - 1]) switches++;
+      }
+      if (unique.size > 1 && switches >= 2) {
+        const msg = `Queue has ${unique.size} characters interleaved — ` +
+                    `running in queue order will trigger ${switches} LoRA ` +
+                    `switches (~3-5s each, ~${Math.round(switches * 4)}s total).\n\n` +
+                    `Sort by character to coalesce to ${unique.size - 1} switches.\n\n` +
+                    `Continue with queue order anyway?`;
+        if (!confirm(msg)) return;
+      }
+    } catch (e) {
+      console.warn("pre-run queue check failed", e);
+    }
+  }
+
+  const r = await postJSON("/api/run/start", { character: state.character, order });
   if (!r.ok) { toast("Cannot start: " + r.err); return; }
-  toast("Run started");
+  toast(`Run started (${order === "character" ? "sorted by character" : "queue order"})`);
   _activeJob = "generate";
   pollRunStatus();
 }
@@ -1510,6 +1581,16 @@ $("#chain-after-training").addEventListener("change", async e => {
   if (r.ok) toast(r.chain_after_training ? "Generation will auto-start when training finishes" : "Auto-start cancelled");
 });
 $("#queue-add").addEventListener("click", addPromptModalOpen);
+$("#queue-sort-character").addEventListener("click", async () => {
+  if (!confirm("Reorder the queue so consecutive same-character entries cluster together? This minimizes LoRA switches at run time.")) return;
+  const r = await postJSON("/api/queue/sort-by-character", {});
+  if (r.ok) {
+    toast(`🔀 Sorted ${r.count} prompts by character`);
+    loadQueue();
+  } else {
+    toast("❌ " + (r.err || "sort failed"));
+  }
+});
 $("#queue-shuffle").addEventListener("click", async () => {
   if (!confirm("Shuffle the entire queue? This randomizes the run order.")) return;
   const r = await postJSON("/api/queue/shuffle", { character: state.character });
