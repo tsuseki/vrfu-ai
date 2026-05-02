@@ -20,6 +20,12 @@ characters/*/output/
 characters/*/archive/
 characters/*/liked/
 characters/*/liked_upscaled/
+
+# ─── Unified runtime queue + migration leftovers ───────────────────────
+# queue.yaml at project root is per-user runtime state (the prompts you've
+# queued up for generation). Each user has their own; not shareable.
+queue.yaml
+characters/*/queue.yaml.legacy_per_char
 characters/*/done.yaml
 characters/*/upscaled.yaml
 characters/*/liked_images.txt

@@ -10,11 +10,11 @@
 <header>
   <div class="brand">🦊 vrfu-ai</div>
   <nav class="pages">
-    <button class="page-btn active" data-page="generation">⚙️ Generation</button>
-    <button class="page-btn"        data-page="review">🖼️ Review</button>
-    <button class="page-btn"        data-page="activity">📜 Activity</button>
+    <button class="page-btn active" data-page="generation">▶️ Generation</button>
+    <button class="page-btn"        data-page="review">🖼️ Gallery</button>
     <button class="page-btn"        data-page="characters">👥 Characters</button>
     <button class="page-btn"        data-page="docs">📖 Docs</button>
+    <button class="page-btn"        data-page="activity">📜 Log</button>
   </nav>
 </header>
 
@@ -43,12 +43,13 @@
 <!-- ─── Generation page ──────────────────────────────────────────────── -->
 <section id="page-generation" class="page">
   <div class="gen-character-picker">
-    <label>Active character
-      <img id="character-thumb" class="char-thumb" alt="" src="">
-      <select id="character"></select>
-    </label>
-    <button id="add-character" title="Scaffold a new character from the template">➕ New</button>
-    <span class="muted">— picks which queue you're editing and which LoRA the run targets. Each entry can override via its <code>character:</code> field.</span>
+    <button id="add-character" title="Scaffold a new character from the template">➕ New character</button>
+    <span class="muted">Each queue entry picks its own character via the <code>character:</code> field — set it in the Add prompt modal.</span>
+    <!-- Hidden: state.character lives on (last-used character) but no visible picker.
+         Kept as `<select id="character" class="hidden">` so existing code that references
+         it for run/train fallback values keeps working. -->
+    <select id="character" class="hidden"></select>
+    <img id="character-thumb" class="char-thumb hidden" alt="" src="">
   </div>
   <div class="run-banner" id="run-banner">
     <div class="run-banner-row">
@@ -311,7 +312,7 @@
     </label>
 
     <label>Character <span class="muted">(routes to that character's LoRA + output folder)</span>
-      <select id="add-character"><option value="">— use queue default —</option></select>
+      <select id="add-character"><option value="">— pick a character —</option></select>
     </label>
 
     <label>Prompt (comma-separated tags)

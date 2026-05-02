@@ -238,6 +238,18 @@ async function loadCharacters() {
   }
   if (state.character) sel.value = state.character;
 
+  // Pre-populate the Add prompt modal's character dropdown too so it's
+  // always ready when the modal opens (no race / empty-dropdown gotcha).
+  const addSel = $("#add-character");
+  if (addSel) {
+    while (addSel.options.length > 1) addSel.remove(1);
+    characters.forEach(c => {
+      const o = document.createElement("option");
+      o.value = c; o.textContent = c;
+      addSel.appendChild(o);
+    });
+  }
+
   // Populate the Review-tab character picker too. Has an extra "all" option.
   const revSel = $("#review-character");
   if (revSel) {
@@ -481,22 +493,30 @@ function addPromptModalOpen(prefill) {
   setTimeout(() => $("#add-prompt").focus(), 50);
 }
 
-// Populates the per-entry character override dropdown in the add/edit modal.
-// Empty value = "use queue default" — the entry inherits the run's target.
+// Populates the per-entry character dropdown in the add/edit modal.
+// Re-fetches characters in case loadCharacters hasn't fired yet (e.g.,
+// modal opens before bootstrap completes).
 async function populateAddCharacterSelect(currentValue) {
   const sel = $("#add-character");
   if (!sel) return;
-  // Keep only the placeholder, then re-add per-character options
-  while (sel.options.length > 1) sel.remove(1);
-  try {
-    const { characters } = await api("/api/characters");
-    characters.forEach(c => {
-      const o = document.createElement("option");
-      o.value = c; o.textContent = c;
-      sel.appendChild(o);
-    });
-  } catch (e) {}
-  sel.value = currentValue || "";
+  // Re-fetch only if the dropdown is empty (loadCharacters() pre-fills it
+  // at startup; this handles the cold-start race).
+  if (sel.options.length <= 1) {
+    try {
+      const { characters } = await api("/api/characters");
+      while (sel.options.length > 1) sel.remove(1);
+      characters.forEach(c => {
+        const o = document.createElement("option");
+        o.value = c; o.textContent = c;
+        sel.appendChild(o);
+      });
+    } catch (e) {
+      console.error("populateAddCharacterSelect failed", e);
+    }
+  }
+  // Default selection: explicit prefill (when editing an existing entry)
+  // beats the last-used character beats empty.
+  sel.value = currentValue || state.character || "";
 }
 
 // Debounced fetch of /api/prompt-preview so the user can see what actually
@@ -606,6 +626,10 @@ async function addPromptModalSave() {
   const negative  = $("#add-negative").value.trim();
   const character = $("#add-character").value.trim();
   if (!prompt) { toast("Prompt is required"); return; }
+  if (!character && !_editingLabel) {
+    toast("Pick a character (the entry needs to know which LoRA to use)");
+    return;
+  }
   const resVal = ($$("#modal-add input[name=resolution]:checked")[0] || {}).value || "square";
   const { w, h } = RESOLUTIONS[resVal];
 
@@ -646,6 +670,11 @@ async function addPromptModalSave() {
   // adds it to the entry if non-empty (without conflicting with the top-level
   // `character` field that picks the queue file).
   if (character) body.character_override = character;
+  // Remember the last-used character so the next add defaults to it.
+  if (character) {
+    state.character = character;
+    localStorage.setItem("character", character);
+  }
   const r = await postJSON("/api/queue/add", body);
   toast(`Added "${r.label}"`);
   $("#modal-add").classList.add("hidden");

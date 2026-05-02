@@ -37,7 +37,10 @@ header {
 
 .pages {
   display: flex; gap: 4px;
+  flex: 1;  /* take remaining space so margin-left:auto on Log can push it right */
 }
+/* Log tab pushes to the far right since it's a less-used utility view */
+.pages .page-btn[data-page="activity"] { margin-left: auto; }
 .page-btn {
   background: transparent;
   color: var(--fg-dim);
