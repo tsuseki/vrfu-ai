@@ -577,12 +577,33 @@ button.danger-btn:hover { border-color: var(--danger); }
 .queue-table tr.dragging .drag-handle { cursor: grabbing; }
 
 /* ── Character order chips (drag-reorderable, drives sort precedence) ── */
-.char-order-wrap {
-  display: inline-flex; align-items: center; gap: 8px;
-  margin: 0 12px;
+/* Lives inside a popover anchored to the gear next to 🔀 Sort by character. */
+.sort-character-group {
+  display: inline-flex; align-items: center; position: relative;
 }
+.char-order-btn {
+  background: var(--bg-3); color: var(--fg-dim);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  margin-left: 2px;
+  font: inherit; cursor: pointer;
+}
+.char-order-btn:hover { background: var(--bg-2); color: var(--fg); }
+.char-order-popover {
+  position: absolute; top: calc(100% + 4px); left: 0;
+  z-index: 10;
+  min-width: 260px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+}
+.char-order-popover-title { margin: 0 0 6px 0; font-size: 12px; }
+.char-order-popover-hint  { margin: 8px 0 0 0; font-size: 11px; }
 .char-order-chips {
-  display: inline-flex; gap: 4px; flex-wrap: wrap;
+  display: flex; gap: 4px; flex-wrap: wrap;
 }
 .char-order-chip {
   display: inline-flex; align-items: center; gap: 4px;

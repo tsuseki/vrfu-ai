@@ -1846,9 +1846,26 @@ document.querySelectorAll(".upscale-settings-btn").forEach(btn => {
     if (!wasOpen) popover.classList.remove("hidden");
   });
 });
+
+// Character-order gear (next to 🔀 Sort by character) — same toggle pattern.
+document.querySelectorAll(".char-order-btn").forEach(btn => {
+  btn.addEventListener("click", e => {
+    e.stopPropagation();
+    const popover = btn.parentElement.querySelector(".char-order-popover");
+    if (!popover) return;
+    const wasOpen = !popover.classList.contains("hidden");
+    document.querySelectorAll(".char-order-popover").forEach(p => p.classList.add("hidden"));
+    if (!wasOpen) popover.classList.remove("hidden");
+  });
+});
 document.addEventListener("click", e => {
   document.querySelectorAll(".upscale-settings-popover:not(.hidden)").forEach(p => {
     if (!p.contains(e.target) && !e.target.classList.contains("upscale-settings-btn")) {
+      p.classList.add("hidden");
+    }
+  });
+  document.querySelectorAll(".char-order-popover:not(.hidden)").forEach(p => {
+    if (!p.contains(e.target) && !e.target.classList.contains("char-order-btn")) {
       p.classList.add("hidden");
     }
   });
@@ -1856,6 +1873,7 @@ document.addEventListener("click", e => {
 document.addEventListener("keydown", e => {
   if (e.key === "Escape") {
     document.querySelectorAll(".upscale-settings-popover:not(.hidden)").forEach(p => p.classList.add("hidden"));
+    document.querySelectorAll(".char-order-popover:not(.hidden)").forEach(p => p.classList.add("hidden"));
   }
 });
 // Initial visibility (default tab is New / output)

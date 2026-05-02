@@ -52,10 +52,6 @@
   <div class="run-banner" id="run-banner">
     <div class="run-banner-row">
       <button id="run-start"     class="run-btn primary">▶️ Start run</button>
-      <div class="char-order-wrap" title="Order characters take their turns when sorting. Drag to reorder. The 🔀 Sort by character button (queue toolbar) uses this order.">
-        <span class="muted">Character order:</span>
-        <div id="char-order-chips" class="char-order-chips"></div>
-      </div>
       <span class="upscale-group">
         <button id="run-upscale" class="run-btn">🔼 Upscale liked</button>
         <button class="upscale-settings-btn run-btn" type="button" title="Upscale settings">⚙</button>
@@ -101,7 +97,15 @@
   <div class="queue-toolbar">
     <h2>Queue (<span id="queue-count">0</span>)</h2>
     <button id="queue-add">➕ Add prompt</button>
-    <button id="queue-sort-character" title="Group consecutive same-character entries together so the model doesn't switch LoRAs in between">🔀 Sort by character</button>
+    <span class="sort-character-group">
+      <button id="queue-sort-character" title="Group consecutive same-character entries together so the model doesn't switch LoRAs in between">🔀 Sort by character</button>
+      <button class="char-order-btn" type="button" title="Set character precedence">⚙</button>
+      <div class="char-order-popover hidden">
+        <p class="char-order-popover-title">Character order <span class="muted">(drag to reorder)</span></p>
+        <div id="char-order-chips" class="char-order-chips"></div>
+        <p class="muted char-order-popover-hint">🔀 Sort by character uses this precedence to group entries.</p>
+      </div>
+    </span>
     <button id="queue-shuffle" title="Randomize the order of pending prompts">🎲 Shuffle</button>
     <button id="queue-import">📥 Import YAML</button>
     <button id="queue-export">📤 Export YAML</button>
