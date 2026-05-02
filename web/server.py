@@ -1055,6 +1055,20 @@ class Handler(BaseHTTPRequestHandler):
                 ".txt":  "text/plain; charset=utf-8",
             }.get(ext, "application/octet-stream")
         data = path.read_bytes()
+        # For index.html, inject a cache-busting ?v=<mtime> on the local
+        # script + stylesheet refs so a code change always forces a fresh
+        # fetch — Cache-Control: no-store is supposed to do this but some
+        # browsers cache HTML/JS more aggressively than the spec allows.
+        if path.name == "index.html":
+            try:
+                js_v  = int((HERE / "app.js").stat().st_mtime)
+                css_v = int((HERE / "style.css").stat().st_mtime)
+                text = data.decode("utf-8")
+                text = text.replace('href="style.css"',  f'href="style.css?v={css_v}"')
+                text = text.replace('src="app.js"',      f'src="app.js?v={js_v}"')
+                data = text.encode("utf-8")
+            except Exception:
+                pass
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
