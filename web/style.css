@@ -565,6 +565,88 @@ button.danger-btn:hover { border-color: var(--danger); }
   border: 1px solid var(--border);
   margin-bottom: 4px;
 }
+
+/* ── Generation: active-character picker (moved out of top bar) ──── */
+.gen-character-picker {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 16px;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+}
+.gen-character-picker label {
+  display: flex; align-items: center; gap: 6px;
+  margin: 0;
+}
+.gen-character-picker .muted {
+  font-size: 11px;
+}
+
+/* ── Characters page ──────────────────────────────────────────────── */
+.characters-layout {
+  display: flex; flex-direction: column; gap: 24px;
+  max-width: 1100px; margin: 0 auto; padding: 16px;
+}
+.characters-globals h2,
+.characters-list h2 {
+  margin: 0 0 8px 0;
+}
+.char-card {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 16px;
+  margin: 12px 0;
+}
+.char-card h3 {
+  margin: 0 0 8px 0;
+  font-size: 16px;
+}
+.char-card h4 {
+  margin: 12px 0 4px 0;
+  font-size: 13px;
+  color: var(--fg-dim);
+}
+.char-row {
+  display: flex; gap: 12px; margin: 6px 0;
+  font-size: 12px;
+}
+.char-row-label {
+  color: var(--fg-dim);
+  flex: 0 0 160px;
+  font-weight: 500;
+}
+.char-row-value {
+  flex: 1;
+  word-break: break-word;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  background: var(--bg-3);
+  padding: 4px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+}
+.char-outfits .char-outfit {
+  display: flex; gap: 8px; margin: 4px 0;
+  font-size: 11px;
+}
+.char-outfit strong {
+  flex: 0 0 110px;
+  color: var(--accent);
+}
+.char-outfit code {
+  flex: 1;
+  background: var(--bg-3);
+  padding: 4px 6px;
+  border-radius: 3px;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+.characters-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 1fr;
+}
+@media (min-width: 1100px) {
+  .characters-grid { grid-template-columns: 1fr 1fr; }
+}
 .negative-details { margin-top: 4px; }
 .negative-box { color: var(--fg-dim); }
 

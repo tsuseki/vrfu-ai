@@ -115,6 +115,62 @@ function switchPage(page) {
   if (page === "docs") {
     loadDocsList();
   }
+  if (page === "characters") {
+    loadCharactersPage();
+  }
+}
+
+// ── Characters page ──────────────────────────────────────────────────────
+async function loadCharactersPage() {
+  try {
+    const r = await api("/api/characters/details");
+    // Globals: base positive / negative + multigirl mode info
+    $("#globals-base-positive").textContent       = r.globals.base_positive;
+    $("#globals-base-negative").textContent       = r.globals.base_negative;
+    $("#globals-multigirl-stripped").textContent  = r.globals.multigirl_stripped || "(nothing)";
+    $("#globals-multigirl-negative").textContent  = r.globals.multigirl_negative;
+
+    // Per-character cards
+    const grid = $("#characters-grid");
+    grid.innerHTML = "";
+    if (!r.characters.length) {
+      grid.innerHTML = `<p class="muted">No characters defined yet.</p>`;
+      return;
+    }
+    r.characters.forEach(c => {
+      const card = document.createElement("div");
+      card.className = "char-card";
+
+      if (c.error) {
+        card.innerHTML = `<h3>${escapeHTML(c.name)}</h3><p class="muted">⚠️ config parse failed: ${escapeHTML(c.error)}</p>`;
+        grid.appendChild(card);
+        return;
+      }
+
+      const outfitsHtml = Object.entries(c.outfits).length
+        ? Object.entries(c.outfits)
+            .map(([name, tags]) => `<div class="char-outfit"><strong>${escapeHTML(name)}</strong> <code>${escapeHTML(tags)}</code></div>`)
+            .join("")
+        : `<p class="muted">— no outfits —</p>`;
+
+      card.innerHTML = `
+        <h3>${escapeHTML(c.character_name)} <span class="muted">(${escapeHTML(c.name)})</span></h3>
+        <div class="char-row"><span class="char-row-label">trigger_word</span><code class="char-row-value">${escapeHTML(c.trigger_word || "")}</code></div>
+        <div class="char-row"><span class="char-row-label">character_tags</span><code class="char-row-value">${escapeHTML(c.character_tags || "")}</code></div>
+        <div class="char-row"><span class="char-row-label">negative_tags</span><code class="char-row-value">${c.negative_tags ? escapeHTML(c.negative_tags) : '<span class="muted">— none —</span>'}</code></div>
+        <div class="char-row"><span class="char-row-label">LoRA</span><code class="char-row-value">${escapeHTML(c.character_lora)} @ ${c.character_lora_weight ?? "?"}</code></div>
+        <div class="char-row"><span class="char-row-label">checkpoint</span><code class="char-row-value">${escapeHTML(c.checkpoint)}</code></div>
+        <div class="char-row"><span class="char-row-label">sampler</span><code class="char-row-value">${escapeHTML(c.sampler || "")}</code></div>
+        <div class="char-outfits">
+          <h4>Outfits</h4>
+          ${outfitsHtml}
+        </div>
+      `;
+      grid.appendChild(card);
+    });
+  } catch (e) {
+    $("#characters-grid").innerHTML = `<p class="muted">⚠️ load failed: ${escapeHTML(String(e))}</p>`;
+  }
 }
 
 // ── Docs viewer ──────────────────────────────────────────────────────────
@@ -238,6 +294,9 @@ async function loadQueue() {
     const negDisplay = negText
       ? `<span title="${escapeHTML(negText)}">${escapeHTML(negTrunc)}</span>`
       : `<span class="muted" title="Uses the global default negative (BASE_NEGATIVE in generate.py)">— default —</span>`;
+    const charDisplay = entry.character
+      ? `<span class="mono" title="Routes to ${escapeHTML(entry.character)}'s LoRA">${escapeHTML(entry.character)}</span>`
+      : `<span class="muted" title="Inherits the run's target character">(default)</span>`;
     const lbl = escapeHTML(entry.label);
     const isActive = entry.label === activeLabel;
     const idxLabel = isActive ? "▶️" : (idx + 1);
@@ -250,6 +309,7 @@ async function loadQueue() {
     tr.innerHTML = `
       <td class="muted">${idxLabel}</td>
       <td class="mono">${lbl}${isActive ? ' <span class="active-badge">generating</span>' : ""}</td>
+      <td>${charDisplay}</td>
       <td class="muted">${dim}</td>
       <td class="prompt-cell" title="${escapeHTML(entry.prompt || "")}">${escapeHTML(promptTrunc)}</td>
       <td class="prompt-cell">${negDisplay}</td>
@@ -356,6 +416,7 @@ function addPromptModalOpen(prefill) {
   $("#add-label").value    = prefill.label    || "";
   $("#add-prompt").value   = prefill.prompt   || "";
   $("#add-negative").value = prefill.negative || "";
+  populateAddCharacterSelect(prefill.character);
   refreshPromptPreview();
   // Pick resolution radio
   const res = resolutionFromDims(prefill.width, prefill.height);
@@ -374,6 +435,24 @@ function addPromptModalOpen(prefill) {
   $("#modal-add").classList.remove("hidden");
   populateQuickArtists();
   setTimeout(() => $("#add-prompt").focus(), 50);
+}
+
+// Populates the per-entry character override dropdown in the add/edit modal.
+// Empty value = "use queue default" — the entry inherits the run's target.
+async function populateAddCharacterSelect(currentValue) {
+  const sel = $("#add-character");
+  if (!sel) return;
+  // Keep only the placeholder, then re-add per-character options
+  while (sel.options.length > 1) sel.remove(1);
+  try {
+    const { characters } = await api("/api/characters");
+    characters.forEach(c => {
+      const o = document.createElement("option");
+      o.value = c; o.textContent = c;
+      sel.appendChild(o);
+    });
+  } catch (e) {}
+  sel.value = currentValue || "";
 }
 
 // Debounced fetch of /api/prompt-preview so the user can see what actually
@@ -478,16 +557,19 @@ function populateQuickPopular() {
 }
 
 async function addPromptModalSave() {
-  const label    = $("#add-label").value.trim();
-  const prompt   = $("#add-prompt").value.trim();
-  const negative = $("#add-negative").value.trim();
+  const label     = $("#add-label").value.trim();
+  const prompt    = $("#add-prompt").value.trim();
+  const negative  = $("#add-negative").value.trim();
+  const character = $("#add-character").value.trim();
   if (!prompt) { toast("Prompt is required"); return; }
   const resVal = ($$("#modal-add input[name=resolution]:checked")[0] || {}).value || "square";
   const { w, h } = RESOLUTIONS[resVal];
 
   if (_editingLabel) {
-    // UPDATE existing entry
-    const fields = { prompt, width: w, height: h, negative };
+    // UPDATE existing entry. Empty string for character means "remove the
+    // override and inherit queue default" — explicitly setting it to "" is
+    // intentional; don't filter it out.
+    const fields = { prompt, width: w, height: h, negative, character };
     if (label && label !== _editingLabel) fields.label = label;
     const r = await postJSON("/api/queue/update", {
       character: state.character,
@@ -505,7 +587,9 @@ async function addPromptModalSave() {
     return;
   }
 
-  // ADD new entry (prepended on the server side)
+  // ADD new entry (prepended on the server side). The "character" passed at
+  // the top level is the OWNING character — which queue.yaml the entry lands
+  // in. The optional per-entry override goes inside the entry itself.
   const body = {
     character: state.character,
     label:     label || "untitled",
@@ -514,6 +598,10 @@ async function addPromptModalSave() {
     height:    h,
   };
   if (negative) body.negative = negative;
+  // Note: per-entry character override is sent in body too — server handler
+  // adds it to the entry if non-empty (without conflicting with the top-level
+  // `character` field that picks the queue file).
+  if (character) body.character_override = character;
   const r = await postJSON("/api/queue/add", body);
   toast(`Added "${r.label}"`);
   $("#modal-add").classList.add("hidden");

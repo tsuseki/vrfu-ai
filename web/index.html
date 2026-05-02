@@ -13,15 +13,9 @@
     <button class="page-btn active" data-page="generation">⚙️ Generation</button>
     <button class="page-btn"        data-page="review">🖼️ Review</button>
     <button class="page-btn"        data-page="activity">📜 Activity</button>
+    <button class="page-btn"        data-page="characters">👥 Characters</button>
     <button class="page-btn"        data-page="docs">📖 Docs</button>
   </nav>
-  <div class="controls">
-    <label>Character
-      <img id="character-thumb" class="char-thumb" alt="" src="">
-      <select id="character"></select>
-    </label>
-    <button id="add-character" title="Scaffold a new character from the template">➕ New</button>
-  </div>
 </header>
 
 <!-- ─── Add character modal ─────────────────────────────────────────────── -->
@@ -48,6 +42,14 @@
 
 <!-- ─── Generation page ──────────────────────────────────────────────── -->
 <section id="page-generation" class="page">
+  <div class="gen-character-picker">
+    <label>Active character
+      <img id="character-thumb" class="char-thumb" alt="" src="">
+      <select id="character"></select>
+    </label>
+    <button id="add-character" title="Scaffold a new character from the template">➕ New</button>
+    <span class="muted">— picks which queue you're editing and which LoRA the run targets. Each entry can override via its <code>character:</code> field.</span>
+  </div>
   <div class="run-banner" id="run-banner">
     <div class="run-banner-row">
       <button id="run-start"     class="run-btn primary">▶️ Start run</button>
@@ -104,7 +106,7 @@
   <div class="queue-table-wrap">
     <table class="queue-table">
       <thead>
-        <tr><th>#</th><th>Label</th><th>Dimensions</th><th>Prompt</th><th>Negative</th><th></th></tr>
+        <tr><th>#</th><th>Label</th><th>Character</th><th>Dimensions</th><th>Prompt</th><th>Negative</th><th></th></tr>
       </thead>
       <tbody id="queue-tbody"></tbody>
     </table>
@@ -213,6 +215,48 @@
 </section>
 
 <!-- ─── Docs page ───────────────────────────────────────────────────── -->
+<!-- ─── Characters page ─────────────────────────────────────────────── -->
+<section id="page-characters" class="page hidden">
+  <div class="characters-layout">
+    <section class="characters-globals">
+      <h2>Global tag config</h2>
+      <p class="muted">These apply to every prompt. Per-character <code>negative_tags</code> and per-entry <code>negative:</code> append on top.</p>
+
+      <div class="char-card">
+        <h3>📜 Standard mode <span class="muted">(1girl, solo prompts)</span></h3>
+        <div class="char-row">
+          <span class="char-row-label">BASE_POSITIVE</span>
+          <code id="globals-base-positive" class="char-row-value">—</code>
+        </div>
+        <div class="char-row">
+          <span class="char-row-label">BASE_NEGATIVE</span>
+          <code id="globals-base-negative" class="char-row-value">—</code>
+        </div>
+      </div>
+
+      <div class="char-card">
+        <h3>👯 Multi-girl mode <span class="muted">(<code>multi_girl: true</code> on a queue entry — clones / multi-character scenes)</span></h3>
+        <p class="muted">When <code>multi_girl: true</code>, the entry's user-prompt's <code>1girl, solo</code> stays but character_tags' <code>1girl, solo</code> is stripped, and the negatives below are stripped too so they don't fight your "(2girls:1.6)" weighting.</p>
+        <div class="char-row">
+          <span class="char-row-label">stripped from negative</span>
+          <code id="globals-multigirl-stripped" class="char-row-value">—</code>
+        </div>
+        <div class="char-row">
+          <span class="char-row-label">effective negative in multi-girl mode</span>
+          <code id="globals-multigirl-negative" class="char-row-value">—</code>
+        </div>
+      </div>
+    </section>
+
+    <section class="characters-list">
+      <h2>Characters</h2>
+      <div id="characters-grid" class="characters-grid">
+        <p class="muted">Loading…</p>
+      </div>
+    </section>
+  </div>
+</section>
+
 <section id="page-docs" class="page hidden">
   <div class="docs-layout">
     <aside id="docs-sidebar" class="docs-sidebar"></aside>
@@ -257,6 +301,10 @@
 
     <label>Label
       <input id="add-label" type="text" placeholder="auto-named if blank">
+    </label>
+
+    <label>Character <span class="muted">(routes to that character's LoRA + output folder)</span>
+      <select id="add-character"><option value="">— use queue default —</option></select>
     </label>
 
     <label>Prompt (comma-separated tags)

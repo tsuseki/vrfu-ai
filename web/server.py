@@ -1251,6 +1251,50 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/stats/global":
             return self._send_json(aggregate_stats_global())
 
+        if path == "/api/characters/details":
+            # Returns per-character configs + the global positive/negative
+            # for the Characters page. Read-only for now — no editing.
+            chars = []
+            for name in C.list_characters():
+                cfg_path = C.char_dir(name) / "config.yaml"
+                try:
+                    cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+                except Exception as e:
+                    chars.append({"name": name, "error": str(e)})
+                    continue
+                # Project the fields the UI cares about (skip secrets-ish or
+                # noisy keys). Keep paths as strings for JSON.
+                chars.append({
+                    "name":           name,
+                    "character_name": cfg.get("character_name", name),
+                    "trigger_word":   cfg.get("trigger_word", ""),
+                    "character_tags": cfg.get("character_tags", ""),
+                    "negative_tags":  cfg.get("negative_tags", ""),
+                    "checkpoint":     str(cfg.get("checkpoint", "")),
+                    "character_lora": str(cfg.get("character_lora", "")),
+                    "character_lora_weight": cfg.get("character_lora_weight"),
+                    "sampler":        cfg.get("sampler", ""),
+                    "outfits":        cfg.get("outfits") or {},
+                    "extra_loras":    cfg.get("extra_loras") or [],
+                })
+            multigirl_stripped_neg = prompt_build._strip_multigirl_negatives(prompt_build.BASE_NEGATIVE)
+            # The pieces that GET stripped in multigirl mode (diff)
+            stripped_pieces = []
+            for tok in ["multiple characters", "multiple girls", "2girls",
+                        "3girls", "4girls", "5girls", "6+girls",
+                        "multiple views", "split screen"]:
+                if tok in prompt_build.BASE_NEGATIVE:
+                    stripped_pieces.append(tok)
+            return self._send_json({
+                "characters": chars,
+                "globals": {
+                    "base_positive":          prompt_build.BASE_POSITIVE,
+                    "base_negative":          prompt_build.BASE_NEGATIVE,
+                    "multigirl_stripped":     ", ".join(stripped_pieces),
+                    "multigirl_negative":     multigirl_stripped_neg,
+                },
+            })
+
         if path == "/api/prompt-preview":
             character = char or (C.list_characters() or ["tsu_chocola"])[0]
             user_prompt = qs.get("prompt", [""])[0] or ""
@@ -1491,6 +1535,12 @@ class Handler(BaseHTTPRequestHandler):
             for k in ("width", "height", "seed", "steps", "guidance", "negative"):
                 if body.get(k) not in (None, ""):
                     new_entry[k] = body[k]
+            # body["character"] is the queue OWNER (which queue.yaml to write to).
+            # body["character_override"] is the optional per-entry routing
+            # override — gets stored as entry["character"] so generate.py
+            # routes that entry to a different LoRA/output folder.
+            if body.get("character_override"):
+                new_entry["character"] = body["character_override"]
             entries.insert(0, new_entry)   # PREPEND so it runs next
             save_queue(character, entries)
             C.log_event("queue_added", character=character, label=label)
@@ -1510,6 +1560,12 @@ class Handler(BaseHTTPRequestHandler):
             for e in entries:
                 if e.get("label") == label:
                     e.update({k: v for k, v in fields.items() if v is not None})
+                    # Empty string for an optional override means "remove it"
+                    # — strip so the YAML stays clean instead of carrying
+                    # `character: ""` or `negative: ""` keys.
+                    for k in ("character", "negative"):
+                        if k in e and e[k] == "":
+                            del e[k]
                     found = True
                     break
             if not found:
