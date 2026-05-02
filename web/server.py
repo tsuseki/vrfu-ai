@@ -1824,6 +1824,10 @@ class Handler(BaseHTTPRequestHandler):
             scale = body.get("scale")
             if isinstance(scale, (int, float)) and scale > 0:
                 extra.extend(["--scale", str(float(scale))])
+            # 'all' mode: upscale.py iterates every character one at a time.
+            # spawn_tool needs *some* character name for log paths; use "all"
+            # as the conventional sentinel — log goes to characters/all/logs/
+            # which is fine, and progress lines distinguish per character.
             return self._send_json(spawn_tool("upscale", character, "upscale.py",
                                               extra_args=extra))
 

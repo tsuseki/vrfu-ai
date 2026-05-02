@@ -206,7 +206,7 @@ def upscale_one(pipe, compel, png: Path, out_path: Path, entry: dict,
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="SDXL hires-fix upscaler.")
-    parser.add_argument("--character", help="Character name (folder under characters/)")
+    parser.add_argument("--character", help="Character name (folder under characters/), or 'all' to walk every character sequentially")
     parser.add_argument("--stems", help="Comma-separated list of stems to process; default = all of liked/")
     parser.add_argument("--src-file", help="Process a single PNG path directly (off-tree mode)")
     parser.add_argument("--stem-as", help="Treat --src-file as having this stem (for output naming)")
@@ -215,7 +215,32 @@ def main() -> None:
                              "Falls back to config.yaml's upscale_scale, then VRAM auto-pick.")
     args = parser.parse_args()
 
+    # 'all' mode: iterate over every character and process their liked/ folders
+    # one after another. Same pipeline gets reused across characters (LoRA gets
+    # swapped per character via build_pipe).
+    if args.character == "all":
+        characters = C.list_characters()
+        if not characters:
+            sys.exit("ERROR: no characters found.")
+        print(f"=== Upscale ALL ({len(characters)} characters) ===\n")
+        for i, cname in enumerate(characters, 1):
+            print(f"\n──── [{i}/{len(characters)}] {cname} ─────────────────────")
+            try:
+                _upscale_one_character(cname, args)
+            except SystemExit as e:
+                # _upscale_one_character may sys.exit on missing folders etc.
+                # Catch and continue to the next character so a single missing
+                # liked/ folder doesn't kill the whole all-mode run.
+                print(f"  Skipped {cname}: {e}")
+        print("\nDone (all characters).")
+        return
+
     char_name = C.resolve_default_character(args.character)
+    _upscale_one_character(char_name, args)
+
+
+def _upscale_one_character(char_name: str, args) -> None:
+    """Hoisted from main() so 'all' mode can call it per character."""
     cfg       = C.load_character(char_name)
     liked     = C.liked_dir(char_name)
     archive   = C.liked_archive_dir(char_name)

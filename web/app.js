@@ -1040,7 +1040,9 @@ async function startRun() {
   pollRunStatus();
 }
 async function startUpscaleFromBanner() {
-  const r = await postJSON("/api/upscale", { character: state.character, scale: state.upscaleScale });
+  // Use the review-tab character context — "all" walks every character.
+  const target = state.reviewCharacter || state.character;
+  const r = await postJSON("/api/upscale", { character: target, scale: state.upscaleScale });
   if (!r.ok) { toast("Cannot start: " + r.err); return; }
   toast(`Upscale started @ ${state.upscaleScale}×`);
   _activeJob = "upscale";
@@ -1651,9 +1653,12 @@ async function organizeOutput() {
   } catch (e) { toast("❌ Organize failed"); }
   finally { btn.disabled = false; btn.textContent = "📦 Organize"; }
 }
+// Upscale from the Gallery toolbar (review side). Same all-mode handling.
 async function startUpscale() {
-  // Trigger upscale, then jump to Generation page so the user sees the unified banner
-  const r = await postJSON("/api/upscale", { character: state.character, scale: state.upscaleScale });
+  // Trigger upscale, then jump to Generation page so the user sees the unified banner.
+  // Use review-tab character context so "all" walks every character sequentially.
+  const target = state.reviewCharacter || state.character;
+  const r = await postJSON("/api/upscale", { character: target, scale: state.upscaleScale });
   if (r.ok) {
     toast(`🔼 Upscale started @ ${state.upscaleScale}× — see Generation page`);
     switchPage("generation");
