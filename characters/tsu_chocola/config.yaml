@@ -14,6 +14,11 @@ trigger_word: "tsu chocola"
 # tail, diamond-shaped pupils, facial mark" — none of those tokens were
 # in the new training captions, so the LoRA had no association for them
 # and outputs went off the rails.
+# NOTE: tsu_chocola needs an artist tag on EVERY prompt. The v2 LoRA's
+# training set was 84% grey-bg studio VRChat shots; without an `artist:NAME`
+# tag the outputs render plasticky-3D even with the full anime-coloring
+# style stack. nardack and ningen are the project's tier-A artists for this
+# character. See PROMPTING.md §9.7 (Per-character exceptions).
 character_tags: "1girl, solo, fox girl, black fox ears, black fox tail, black hair, red eyes, red feather hair ornament, side braid"
 
 # Character-specific negatives — appended to BASE_NEGATIVE only for this

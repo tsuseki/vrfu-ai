@@ -501,7 +501,7 @@ weakens and outputs drift.
 When changing `character_tags`, grep `characters/<name>/training/*.txt` to
 verify each tag actually appears in training.
 
-### 9.7 Artist tags trade fidelity for style
+### 9.7 Artist tags trade fidelity for style — except when the LoRA is poisoned
 
 `artist:NAME` pulls the character toward the artist's tendencies and away
 from the LoRA's trained features. Strong artists (atdan, wlop) drag harder
@@ -512,6 +512,30 @@ when style is the priority and minor face drift is acceptable. If identity
 drifts too hard with an artist tag, try lowering `character_lora_weight`
 in the character config from 0.8 to 0.7 — counterintuitively, sometimes a
 weaker LoRA blends better with a strong artist than a stronger one.
+
+#### Per-character exceptions
+
+The "default to noart" rule **does not** apply uniformly. Some LoRAs in
+this project came out of training with a heavy aesthetic bias baked
+into identity (typically: VRChat-avatar shading, plastic skin, flat
+studio lighting). For those, **noart prompts produce 2.5D-doll outputs
+even with a strong style stack**. The artist tag is the cleanest lever
+to break the baked-in look.
+
+| Character     | noart? | Notes                                          |
+|---------------|--------|------------------------------------------------|
+| `tsu_chocola` | **never** — always include `artist:nardack` or `artist:ningen`. The v2 LoRA's training set was 84% grey-bg studio VRChat shots; without an artist tag, outputs render plasticky-3D. Verified by A/B (see commit history). |
+| `cocoa_mizu`  | OK    | Renders crisp 2D anime even noart, on most prompts. Use artist tags for style flavor, not as a corrective. |
+| `kutsu_rindo` | TBD   | Newer LoRA. Test before assuming either way. |
+
+When adding a per-character exception here, **also add a one-line
+reminder to that character's `config.yaml`** as a comment near
+`character_tags`, so anyone editing prompts for that character sees the
+note in context.
+
+To audit existing entries against this rule, grep the queue or use the
+one-shot script pattern: load `queue.yaml`, walk entries by character,
+flag any where `"artist:" not in prompt.lower()`.
 
 ### 9.8 Seed strategy
 
