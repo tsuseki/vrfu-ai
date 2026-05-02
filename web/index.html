@@ -45,10 +45,10 @@
   <!-- Hidden: state.character lives on (last-used character) but no visible picker.
        Kept as `<select id="character" class="hidden">` so existing code that references
        it for run/train fallback values keeps working. The ➕ New character action
-       moved to the Characters tab sidebar. -->
+       moved to the Characters tab sidebar — its button (id "new-character-btn")
+       calls openAddCharacterModal() directly, no orphan stub needed here. -->
   <select id="character" class="hidden"></select>
   <img id="character-thumb" class="char-thumb hidden" alt="" src="">
-  <button id="add-character" class="hidden"></button>
   <div class="run-banner" id="run-banner">
     <div class="run-banner-row">
       <button id="run-start"     class="run-btn primary">▶️ Start run</button>

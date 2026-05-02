@@ -1987,7 +1987,11 @@ async function createCharacter() {
     await loadCharactersPage();
   }
 }
-$("#add-character").addEventListener("click", openAddCharacterModal);
+// (Legacy "+ New character" button was at id="add-character" in the top
+// header. With the picker moved into the Characters-tab sidebar we don't
+// need a top-bar button anymore. The Characters sidebar's "➕ New character"
+// chip calls openAddCharacterModal() directly. The id was also colliding
+// with the modal's character <select> of the same id, breaking bootstrap.)
 $("#add-character-cancel").addEventListener("click", closeAddCharacterModal);
 $("#add-character-create").addEventListener("click", createCharacter);
 $("#add-character-name").addEventListener("keydown", e => {
