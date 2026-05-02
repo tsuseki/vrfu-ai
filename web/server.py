@@ -1544,6 +1544,18 @@ class Handler(BaseHTTPRequestHandler):
             character = body.get("character")
             if not character:
                 return self._send_json({"ok": False, "err": "missing character"}, 400)
+            # "all" mode: walk every character and aggregate counts. Used when
+            # the user is in all-character review mode and clicks Organize.
+            if character == "all":
+                totals = {"moved_liked": 0, "moved_archive": 0, "skipped": 0,
+                          "characters": []}
+                for cname in C.list_characters():
+                    r = organize_output(cname)
+                    totals["moved_liked"]   += r.get("moved_liked", 0)
+                    totals["moved_archive"] += r.get("moved_archive", 0)
+                    totals["skipped"]       += r.get("skipped", 0)
+                    totals["characters"].append(cname)
+                return self._send_json({"ok": True, **totals})
             return self._send_json({"ok": True, **organize_output(character)})
 
         # ── Queue mutations ─────────────────────────────────────────────────

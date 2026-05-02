@@ -1636,7 +1636,9 @@ async function organizeOutput() {
   const btn = $("#organize");
   btn.disabled = true; btn.textContent = "⏳ Organizing…";
   try {
-    const r = await postJSON("/api/organize", { character: state.character });
+    // In all-character review mode, the server walks every character. In
+    // per-character review, it organizes just that one.
+    const r = await postJSON("/api/organize", { character: state.reviewCharacter || state.character });
     if (r.ok) {
       toast(`✅ ${r.moved_liked} → Liked, ${r.moved_archive} → Archive, ${r.skipped} skipped`);
       await loadArtists();
