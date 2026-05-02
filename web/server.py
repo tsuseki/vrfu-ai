@@ -1643,23 +1643,53 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/queue/shuffle":
             import random as _random
-            character = body.get("character")
-            if not character:
-                return self._send_json({"ok": False, "err": "missing character"}, 400)
-            queue_path = C.queue_file(character)
-            try:
-                queue = yaml.safe_load(queue_path.read_text(encoding="utf-8")) or []
-            except Exception as e:
-                return self._send_json({"ok": False, "err": f"queue.yaml unreadable: {e}"}, 500)
-            if not isinstance(queue, list) or len(queue) < 2:
+            queue = load_queue()  # unified queue
+            if len(queue) < 2:
                 return self._send_json({"ok": True, "shuffled": 0})
             _random.shuffle(queue)
-            queue_path.write_text(
-                yaml.safe_dump(queue, allow_unicode=True, sort_keys=False, width=120),
-                encoding="utf-8",
-            )
-            C.log_event("queue_shuffled", character=character, count=len(queue))
+            save_queue(queue)
+            C.log_event("queue_shuffled", count=len(queue))
             return self._send_json({"ok": True, "shuffled": len(queue)})
+
+        if path == "/api/characters/save":
+            # Edit a character's config.yaml. Atomic write under a per-char
+            # lock so the website's /api/character-info reads can't see a
+            # half-written file. Only edits the fields the UI surfaces — it's
+            # not a free-for-all yaml editor.
+            name = body.get("name")
+            fields = body.get("fields", {}) or {}
+            if not name or name not in C.list_characters():
+                return self._send_json({"ok": False, "err": f"unknown character: {name}"}, 400)
+            cfg_path = C.char_dir(name) / "config.yaml"
+            try:
+                cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+            except Exception as e:
+                return self._send_json({"ok": False, "err": f"config.yaml unreadable: {e}"}, 500)
+            # Allowed editable fields
+            ALLOWED = {"character_name", "trigger_word", "character_tags",
+                       "negative_tags", "character_lora_weight", "sampler", "outfits"}
+            for k, v in fields.items():
+                if k not in ALLOWED:
+                    continue
+                if k == "outfits":
+                    if isinstance(v, dict):
+                        cfg["outfits"] = v
+                elif k == "character_lora_weight":
+                    try:
+                        cfg[k] = float(v)
+                    except Exception:
+                        pass
+                else:
+                    cfg[k] = v
+            # Atomic save: tmp + replace under the queue lock
+            tmp = cfg_path.with_suffix(cfg_path.suffix + ".tmp")
+            with _queue_save_lock:  # reuse the lock — config edits are rare
+                with tmp.open("w", encoding="utf-8") as f:
+                    yaml.dump(cfg, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
+                os.replace(tmp, cfg_path)
+            C.log_event("character_config_saved", character=name,
+                        fields=sorted(fields.keys()))
+            return self._send_json({"ok": True})
 
         if path == "/api/queue/import":
             character = body.get("character")

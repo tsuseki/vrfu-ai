@@ -42,15 +42,13 @@
 
 <!-- ─── Generation page ──────────────────────────────────────────────── -->
 <section id="page-generation" class="page">
-  <div class="gen-character-picker">
-    <button id="add-character" title="Scaffold a new character from the template">➕ New character</button>
-    <span class="muted">Each queue entry picks its own character via the <code>character:</code> field — set it in the Add prompt modal.</span>
-    <!-- Hidden: state.character lives on (last-used character) but no visible picker.
-         Kept as `<select id="character" class="hidden">` so existing code that references
-         it for run/train fallback values keeps working. -->
-    <select id="character" class="hidden"></select>
-    <img id="character-thumb" class="char-thumb hidden" alt="" src="">
-  </div>
+  <!-- Hidden: state.character lives on (last-used character) but no visible picker.
+       Kept as `<select id="character" class="hidden">` so existing code that references
+       it for run/train fallback values keeps working. The ➕ New character action
+       moved to the Characters tab sidebar. -->
+  <select id="character" class="hidden"></select>
+  <img id="character-thumb" class="char-thumb hidden" alt="" src="">
+  <button id="add-character" class="hidden"></button>
   <div class="run-banner" id="run-banner">
     <div class="run-banner-row">
       <button id="run-start"     class="run-btn primary">▶️ Start run</button>
@@ -225,43 +223,11 @@
 <!-- ─── Docs page ───────────────────────────────────────────────────── -->
 <!-- ─── Characters page ─────────────────────────────────────────────── -->
 <section id="page-characters" class="page hidden">
-  <div class="characters-layout">
-    <section class="characters-globals">
-      <h2>Global tag config</h2>
-      <p class="muted">These apply to every prompt. Per-character <code>negative_tags</code> and per-entry <code>negative:</code> append on top.</p>
-
-      <div class="char-card">
-        <h3>📜 Standard mode <span class="muted">(1girl, solo prompts)</span></h3>
-        <div class="char-row">
-          <span class="char-row-label">BASE_POSITIVE</span>
-          <code id="globals-base-positive" class="char-row-value">—</code>
-        </div>
-        <div class="char-row">
-          <span class="char-row-label">BASE_NEGATIVE</span>
-          <code id="globals-base-negative" class="char-row-value">—</code>
-        </div>
-      </div>
-
-      <div class="char-card">
-        <h3>👯 Multi-girl mode <span class="muted">(<code>multi_girl: true</code> on a queue entry — clones / multi-character scenes)</span></h3>
-        <p class="muted">When <code>multi_girl: true</code>, the entry's user-prompt's <code>1girl, solo</code> stays but character_tags' <code>1girl, solo</code> is stripped, and the negatives below are stripped too so they don't fight your "(2girls:1.6)" weighting.</p>
-        <div class="char-row">
-          <span class="char-row-label">stripped from negative</span>
-          <code id="globals-multigirl-stripped" class="char-row-value">—</code>
-        </div>
-        <div class="char-row">
-          <span class="char-row-label">effective negative in multi-girl mode</span>
-          <code id="globals-multigirl-negative" class="char-row-value">—</code>
-        </div>
-      </div>
-    </section>
-
-    <section class="characters-list">
-      <h2>Characters</h2>
-      <div id="characters-grid" class="characters-grid">
-        <p class="muted">Loading…</p>
-      </div>
-    </section>
+  <div class="characters-layout-v2">
+    <aside id="characters-sidebar" class="characters-sidebar"></aside>
+    <article id="characters-content" class="characters-content">
+      <p class="muted">Pick an item from the sidebar.</p>
+    </article>
   </div>
 </section>
 

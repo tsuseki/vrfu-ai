@@ -121,56 +121,248 @@ function switchPage(page) {
 }
 
 // ── Characters page ──────────────────────────────────────────────────────
+// Sidebar-driven layout: pick a sub-page (General tags / Multi-girl / a
+// specific character / New character) and the content panel renders it.
+
+let _charactersData = null;       // last fetched /api/characters/details
+let _charactersActive = "general"; // currently-selected sidebar item key
+
 async function loadCharactersPage() {
   try {
-    const r = await api("/api/characters/details");
-    // Globals: base positive / negative + multigirl mode info
-    $("#globals-base-positive").textContent       = r.globals.base_positive;
-    $("#globals-base-negative").textContent       = r.globals.base_negative;
-    $("#globals-multigirl-stripped").textContent  = r.globals.multigirl_stripped || "(nothing)";
-    $("#globals-multigirl-negative").textContent  = r.globals.multigirl_negative;
+    _charactersData = await api("/api/characters/details");
+  } catch (e) {
+    $("#characters-content").innerHTML =
+      `<p class="muted">⚠️ load failed: ${escapeHTML(String(e))}</p>`;
+    return;
+  }
+  renderCharactersSidebar();
+  // If the previously-active item still exists, keep it; otherwise default
+  // to "general".
+  if (!isCharactersActiveValid()) _charactersActive = "general";
+  renderCharactersContent();
+}
 
-    // Per-character cards
-    const grid = $("#characters-grid");
-    grid.innerHTML = "";
-    if (!r.characters.length) {
-      grid.innerHTML = `<p class="muted">No characters defined yet.</p>`;
+function isCharactersActiveValid() {
+  if (!_charactersData) return false;
+  if (_charactersActive === "general" || _charactersActive === "multigirl") return true;
+  if (_charactersActive.startsWith("char:")) {
+    const name = _charactersActive.slice(5);
+    return _charactersData.characters.some(c => c.name === name);
+  }
+  return false;
+}
+
+function renderCharactersSidebar() {
+  const sb = $("#characters-sidebar");
+  if (!sb || !_charactersData) return;
+  const items = [
+    { key: "general",   label: "🔧 General tags",  group: "globals" },
+    { key: "multigirl", label: "👯 Multi-girl tags", group: "globals" },
+  ];
+  _charactersData.characters.forEach(c => {
+    items.push({ key: `char:${c.name}`, label: `👤 ${c.character_name || c.name}`, group: "chars", name: c.name });
+  });
+  sb.innerHTML = "";
+  let lastGroup = null;
+  items.forEach(it => {
+    if (lastGroup && it.group !== lastGroup) {
+      const sep = document.createElement("hr");
+      sep.className = "sidebar-separator";
+      sb.appendChild(sep);
+    }
+    lastGroup = it.group;
+    const btn = document.createElement("button");
+    btn.className = "sidebar-btn";
+    if (_charactersActive === it.key) btn.classList.add("active");
+    btn.textContent = it.label;
+    btn.addEventListener("click", () => {
+      _charactersActive = it.key;
+      renderCharactersSidebar();
+      renderCharactersContent();
+    });
+    sb.appendChild(btn);
+  });
+  // ➕ New character at the bottom
+  const sep = document.createElement("hr");
+  sep.className = "sidebar-separator";
+  sb.appendChild(sep);
+  const newBtn = document.createElement("button");
+  newBtn.className = "sidebar-btn sidebar-btn-new";
+  newBtn.textContent = "➕ New character";
+  newBtn.addEventListener("click", () => openAddCharacterModal());
+  sb.appendChild(newBtn);
+}
+
+function renderCharactersContent() {
+  const c = $("#characters-content");
+  if (!c || !_charactersData) return;
+  if (_charactersActive === "general") {
+    c.innerHTML = renderGeneralTagsHtml(_charactersData.globals);
+    return;
+  }
+  if (_charactersActive === "multigirl") {
+    c.innerHTML = renderMultigirlTagsHtml(_charactersData.globals);
+    return;
+  }
+  if (_charactersActive.startsWith("char:")) {
+    const name = _charactersActive.slice(5);
+    const char = _charactersData.characters.find(c => c.name === name);
+    if (!char) {
+      c.innerHTML = `<p class="muted">Character ${escapeHTML(name)} not found.</p>`;
       return;
     }
-    r.characters.forEach(c => {
-      const card = document.createElement("div");
-      card.className = "char-card";
-
-      if (c.error) {
-        card.innerHTML = `<h3>${escapeHTML(c.name)}</h3><p class="muted">⚠️ config parse failed: ${escapeHTML(c.error)}</p>`;
-        grid.appendChild(card);
-        return;
-      }
-
-      const outfitsHtml = Object.entries(c.outfits).length
-        ? Object.entries(c.outfits)
-            .map(([name, tags]) => `<div class="char-outfit"><strong>${escapeHTML(name)}</strong> <code>${escapeHTML(tags)}</code></div>`)
-            .join("")
-        : `<p class="muted">— no outfits —</p>`;
-
-      card.innerHTML = `
-        <h3>${escapeHTML(c.character_name)} <span class="muted">(${escapeHTML(c.name)})</span></h3>
-        <div class="char-row"><span class="char-row-label">trigger_word</span><code class="char-row-value">${escapeHTML(c.trigger_word || "")}</code></div>
-        <div class="char-row"><span class="char-row-label">character_tags</span><code class="char-row-value">${escapeHTML(c.character_tags || "")}</code></div>
-        <div class="char-row"><span class="char-row-label">negative_tags</span><code class="char-row-value">${c.negative_tags ? escapeHTML(c.negative_tags) : '<span class="muted">— none —</span>'}</code></div>
-        <div class="char-row"><span class="char-row-label">LoRA</span><code class="char-row-value">${escapeHTML(c.character_lora)} @ ${c.character_lora_weight ?? "?"}</code></div>
-        <div class="char-row"><span class="char-row-label">checkpoint</span><code class="char-row-value">${escapeHTML(c.checkpoint)}</code></div>
-        <div class="char-row"><span class="char-row-label">sampler</span><code class="char-row-value">${escapeHTML(c.sampler || "")}</code></div>
-        <div class="char-outfits">
-          <h4>Outfits</h4>
-          ${outfitsHtml}
-        </div>
-      `;
-      grid.appendChild(card);
-    });
-  } catch (e) {
-    $("#characters-grid").innerHTML = `<p class="muted">⚠️ load failed: ${escapeHTML(String(e))}</p>`;
+    c.innerHTML = renderCharacterEditorHtml(char);
+    wireCharacterEditor(char);
   }
+}
+
+function renderGeneralTagsHtml(g) {
+  return `
+    <h2>🔧 General tags <span class="muted">(applies to every prompt)</span></h2>
+    <p class="muted">Read-only — these are project constants in <code>scripts/prompt_build.py</code>. Edit there if you want to change them globally.</p>
+    <div class="char-card">
+      <h3>BASE_POSITIVE</h3>
+      <code class="char-row-value">${escapeHTML(g.base_positive)}</code>
+      <p class="muted">Goes first in every prompt. Survives CLIP's 77-token cut so the project's project quality + style anchors stay strong.</p>
+    </div>
+    <div class="char-card">
+      <h3>BASE_NEGATIVE</h3>
+      <code class="char-row-value">${escapeHTML(g.base_negative)}</code>
+      <p class="muted">Applied to every generation. Per-character <code>negative_tags</code> and per-entry <code>negative:</code> append on top.</p>
+    </div>
+  `;
+}
+
+function renderMultigirlTagsHtml(g) {
+  return `
+    <h2>👯 Multi-girl tags <span class="muted">(<code>multi_girl: true</code> on a queue entry)</span></h2>
+    <p class="muted">When a queue entry sets <code>multi_girl: true</code> (clone scenarios / multi-character scenes), the engine strips <code>1girl, solo</code> from <code>character_tags</code> AND removes the multi-figure protections from <code>BASE_NEGATIVE</code> so they don't fight your "(2girls:1.6)" weighting.</p>
+    <div class="char-card">
+      <h3>Stripped from negative in multi-girl mode</h3>
+      <code class="char-row-value">${escapeHTML(g.multigirl_stripped || "(nothing)")}</code>
+    </div>
+    <div class="char-card">
+      <h3>Effective negative in multi-girl mode</h3>
+      <code class="char-row-value">${escapeHTML(g.multigirl_negative)}</code>
+      <p class="muted">This is what actually gets sent to the model when <code>multi_girl: true</code>.</p>
+    </div>
+  `;
+}
+
+function renderCharacterEditorHtml(c) {
+  if (c.error) {
+    return `<h2>${escapeHTML(c.name)}</h2><p class="muted">⚠️ config parse failed: ${escapeHTML(c.error)}</p>`;
+  }
+  const outfitRows = Object.entries(c.outfits || {})
+    .map(([name, tags]) => `
+      <div class="outfit-row" data-outfit="${escapeHTML(name)}">
+        <input type="text" class="outfit-name" value="${escapeHTML(name)}" placeholder="variant name">
+        <textarea class="outfit-tags" rows="2" placeholder="tag, tag, tag, …">${escapeHTML(tags)}</textarea>
+        <button class="outfit-delete row-btn-danger" type="button" title="Remove this outfit">🗑</button>
+      </div>
+    `).join("");
+  return `
+    <h2>👤 ${escapeHTML(c.character_name || c.name)} <span class="muted">(${escapeHTML(c.name)})</span></h2>
+    <div class="char-card">
+      <h3>Identity</h3>
+      <label class="edit-row">
+        <span class="edit-row-label">character_name</span>
+        <input class="edit-input" data-field="character_name" type="text" value="${escapeHTML(c.character_name || "")}">
+      </label>
+      <label class="edit-row">
+        <span class="edit-row-label">trigger_word</span>
+        <input class="edit-input" data-field="trigger_word" type="text" value="${escapeHTML(c.trigger_word || "")}">
+      </label>
+      <label class="edit-row">
+        <span class="edit-row-label">character_tags</span>
+        <textarea class="edit-input" data-field="character_tags" rows="3">${escapeHTML(c.character_tags || "")}</textarea>
+      </label>
+      <p class="muted edit-hint">⚠️ tags here must match what's in <code>characters/${escapeHTML(c.name)}/training/*.txt</code> or the LoRA's identity anchor weakens. See PROMPTING.md §9.6.</p>
+      <label class="edit-row">
+        <span class="edit-row-label">negative_tags</span>
+        <textarea class="edit-input" data-field="negative_tags" rows="2" placeholder="(optional — appended only for this character)">${escapeHTML(c.negative_tags || "")}</textarea>
+      </label>
+      <p class="muted edit-hint">⚠️ never list a feature the character actually has. See PROMPTING.md §9.10.</p>
+    </div>
+    <div class="char-card">
+      <h3>Model</h3>
+      <div class="char-row"><span class="char-row-label">LoRA path</span><code class="char-row-value">${escapeHTML(c.character_lora)}</code></div>
+      <div class="char-row"><span class="char-row-label">checkpoint</span><code class="char-row-value">${escapeHTML(c.checkpoint)}</code></div>
+      <label class="edit-row">
+        <span class="edit-row-label">character_lora_weight</span>
+        <input class="edit-input" data-field="character_lora_weight" type="number" min="0" max="1.5" step="0.05" value="${c.character_lora_weight ?? 0.8}">
+      </label>
+      <label class="edit-row">
+        <span class="edit-row-label">sampler</span>
+        <input class="edit-input" data-field="sampler" type="text" value="${escapeHTML(c.sampler || "")}">
+      </label>
+    </div>
+    <div class="char-card">
+      <h3>Outfits</h3>
+      <div id="outfits-list">${outfitRows}</div>
+      <button id="outfit-add" class="row-btn" type="button">➕ Add outfit variant</button>
+      <p class="muted edit-hint">Use these in queue entries via <code>{outfit}</code> or <code>{outfit:variant}</code>. Default outfit (the one used by bare <code>{outfit}</code>) is the variant named exactly <code>default</code>.</p>
+    </div>
+    <div class="char-actions">
+      <button id="char-save" class="primary">💾 Save changes</button>
+      <span id="char-save-status" class="muted"></span>
+    </div>
+  `;
+}
+
+function wireCharacterEditor(c) {
+  // ➕ Add outfit row
+  const addBtn = $("#outfit-add");
+  if (addBtn) addBtn.addEventListener("click", () => {
+    const list = $("#outfits-list");
+    const div = document.createElement("div");
+    div.className = "outfit-row";
+    div.innerHTML = `
+      <input type="text" class="outfit-name" value="" placeholder="variant name">
+      <textarea class="outfit-tags" rows="2" placeholder="tag, tag, tag, …"></textarea>
+      <button class="outfit-delete row-btn-danger" type="button" title="Remove this outfit">🗑</button>
+    `;
+    list.appendChild(div);
+    div.querySelector(".outfit-delete").addEventListener("click", () => div.remove());
+    div.querySelector(".outfit-name").focus();
+  });
+  // 🗑 Existing outfit deletes
+  $$(".outfit-delete").forEach(btn =>
+    btn.addEventListener("click", e => e.target.closest(".outfit-row").remove()));
+
+  // 💾 Save
+  $("#char-save").addEventListener("click", async () => {
+    const fields = {};
+    $$('#characters-content [data-field]').forEach(el => {
+      const k = el.dataset.field;
+      fields[k] = el.value.trim();
+    });
+    // Collect outfits from the editable rows
+    const outfits = {};
+    $$(".outfit-row").forEach(row => {
+      const name = row.querySelector(".outfit-name").value.trim();
+      const tags = row.querySelector(".outfit-tags").value.trim();
+      if (name && tags) outfits[name] = tags;
+    });
+    fields.outfits = outfits;
+    const status = $("#char-save-status");
+    status.textContent = "Saving…";
+    try {
+      const r = await postJSON("/api/characters/save", { name: c.name, fields });
+      if (r.ok) {
+        status.textContent = "✓ Saved";
+        toast(`Saved ${c.name}`);
+        // Refresh _charactersData so the next sidebar click sees the new values
+        loadCharactersPage();
+      } else {
+        status.textContent = "❌ " + (r.err || "save failed");
+        toast("Save failed: " + (r.err || ""));
+      }
+    } catch (e) {
+      status.textContent = "❌ " + e.message;
+      toast("Save failed: " + e.message);
+    }
+  });
 }
 
 // ── Docs viewer ──────────────────────────────────────────────────────────
@@ -494,25 +686,29 @@ function addPromptModalOpen(prefill) {
 }
 
 // Populates the per-entry character dropdown in the add/edit modal.
-// Re-fetches characters in case loadCharacters hasn't fired yet (e.g.,
-// modal opens before bootstrap completes).
+// Always fetches fresh on modal open so we don't show a stale list (and
+// so the caching bug that left this dropdown empty on some refreshes
+// can't recur).
 async function populateAddCharacterSelect(currentValue) {
   const sel = $("#add-character");
   if (!sel) return;
-  // Re-fetch only if the dropdown is empty (loadCharacters() pre-fills it
-  // at startup; this handles the cold-start race).
-  if (sel.options.length <= 1) {
-    try {
-      const { characters } = await api("/api/characters");
-      while (sel.options.length > 1) sel.remove(1);
-      characters.forEach(c => {
-        const o = document.createElement("option");
-        o.value = c; o.textContent = c;
-        sel.appendChild(o);
-      });
-    } catch (e) {
-      console.error("populateAddCharacterSelect failed", e);
+  try {
+    const r = await api("/api/characters");
+    const characters = r && r.characters ? r.characters : [];
+    // Rebuild options: keep the placeholder, drop everything else, re-add.
+    while (sel.options.length > 1) sel.remove(1);
+    if (characters.length === 0) {
+      console.warn("populateAddCharacterSelect: /api/characters returned empty list");
+      toast("⚠️ No characters found — restart the server?");
     }
+    characters.forEach(c => {
+      const o = document.createElement("option");
+      o.value = c; o.textContent = c;
+      sel.appendChild(o);
+    });
+  } catch (e) {
+    console.error("populateAddCharacterSelect failed", e);
+    toast("⚠️ Failed to load character list: " + e.message);
   }
   // Default selection: explicit prefill (when editing an existing entry)
   // beats the last-used character beats empty.
@@ -1703,6 +1899,12 @@ async function createCharacter() {
   await Promise.all([loadBatches(), loadArtists(), loadStats()]);
   await loadImages();
   await loadQueue();
+  // If we're on the Characters tab, refresh sidebar so the new char appears
+  // and select it so the user can edit its config right away.
+  if (state.page_active === "characters") {
+    _charactersActive = `char:${name}`;
+    await loadCharactersPage();
+  }
 }
 $("#add-character").addEventListener("click", openAddCharacterModal);
 $("#add-character-cancel").addEventListener("click", closeAddCharacterModal);

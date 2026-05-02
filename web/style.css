@@ -598,7 +598,88 @@ button.danger-btn:hover { border-color: var(--danger); }
   font-size: 11px;
 }
 
-/* ── Characters page ──────────────────────────────────────────────── */
+/* ── Characters page (v2: sidebar + content) ──────────────────────── */
+.characters-layout-v2 {
+  display: flex; gap: 24px;
+  max-width: 1400px; margin: 0 auto; padding: 16px;
+  align-items: flex-start;
+}
+.characters-sidebar {
+  flex: 0 0 220px;
+  display: flex; flex-direction: column; gap: 2px;
+  position: sticky; top: 16px;
+}
+.characters-sidebar .sidebar-btn {
+  background: transparent;
+  color: var(--fg-dim);
+  border: none;
+  text-align: left;
+  padding: 8px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font: inherit; font-size: 13px;
+  transition: background .12s, color .12s;
+}
+.characters-sidebar .sidebar-btn:hover { background: var(--bg-3); color: var(--fg); }
+.characters-sidebar .sidebar-btn.active { background: var(--accent); color: #fff; font-weight: 500; }
+.characters-sidebar .sidebar-btn-new { color: var(--accent-2, var(--accent)); margin-top: 4px; }
+.characters-sidebar .sidebar-separator {
+  border: 0; border-top: 1px solid var(--border);
+  margin: 6px 8px;
+}
+.characters-content {
+  flex: 1;
+  min-width: 0;  /* allow textareas to shrink with the column */
+}
+.characters-content h2 { margin: 0 0 12px 0; }
+
+.edit-row {
+  display: flex; gap: 12px; align-items: flex-start;
+  margin: 8px 0;
+}
+.edit-row-label {
+  flex: 0 0 180px;
+  color: var(--fg-dim);
+  font-size: 12px;
+  font-weight: 500;
+  padding-top: 6px;
+}
+.edit-input {
+  flex: 1;
+  background: var(--bg-3);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font: inherit; font-size: 12px;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+.edit-input:focus { outline: 1px solid var(--accent); }
+.edit-hint { font-size: 11px; margin: 2px 0 8px 192px; }
+
+.outfit-row {
+  display: flex; gap: 8px; align-items: flex-start;
+  margin: 6px 0;
+}
+.outfit-name { flex: 0 0 140px; }
+.outfit-tags { flex: 1; }
+
+.char-actions {
+  display: flex; gap: 12px; align-items: center;
+  margin: 16px 0;
+}
+.char-actions .primary {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  font: inherit; font-weight: 500;
+  cursor: pointer;
+}
+.char-actions .primary:hover { filter: brightness(1.1); }
+
+/* ── Characters page (legacy v1: kept for forward-compat) ─────────── */
 .characters-layout {
   display: flex; flex-direction: column; gap: 24px;
   max-width: 1100px; margin: 0 auto; padding: 16px;
