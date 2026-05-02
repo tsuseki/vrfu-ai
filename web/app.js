@@ -4,6 +4,10 @@ const $$ = sel => Array.from(document.querySelectorAll(sel));
 
 const state = {
   character: localStorage.getItem("character") || null,
+  // The Review tab has its own character context — defaults to "all" so
+  // that browsing crosses every character. The Generation tab keeps using
+  // `state.character` as the active character for editing/running queues.
+  reviewCharacter: localStorage.getItem("reviewCharacter") || "all",
   page_active: localStorage.getItem("page_active") || "generation",
   // Review state
   view:    "output",
@@ -177,6 +181,22 @@ async function loadCharacters() {
     state.character = characters[0] || null;
   }
   if (state.character) sel.value = state.character;
+
+  // Populate the Review-tab character picker too. Has an extra "all" option.
+  const revSel = $("#review-character");
+  if (revSel) {
+    // Keep the "🌐 All characters" option (declared in HTML) at the top, then add per-character.
+    while (revSel.options.length > 1) revSel.remove(1);
+    characters.forEach(c => {
+      const o = document.createElement("option");
+      o.value = c; o.textContent = c;
+      revSel.appendChild(o);
+    });
+    if (!characters.includes(state.reviewCharacter) && state.reviewCharacter !== "all") {
+      state.reviewCharacter = "all";
+    }
+    revSel.value = state.reviewCharacter;
+  }
 }
 
 // ── Generation: model info banner ────────────────────────────────────────
@@ -713,11 +733,15 @@ async function pollRunStatus() {
 
 // ── Review: artists, batches, images, voting ────────────────────────────
 async function loadBatches() {
-  if (!state.character) return;
+  if (!state.reviewCharacter) return;
   const wrap = $("#batch-wrap");
-  if (state.view !== "output") { wrap.style.display = "none"; return; }
+  // Batches are per-character; in "all" mode they don't aggregate cleanly so hide.
+  if (state.view !== "output" || state.reviewCharacter === "all") {
+    wrap.style.display = "none";
+    return;
+  }
   wrap.style.display = "";
-  const { batches } = await api(`/api/batches?character=${encodeURIComponent(state.character)}`);
+  const { batches } = await api(`/api/batches?character=${encodeURIComponent(state.reviewCharacter)}`);
   const sel = $("#batch");
   sel.innerHTML = '<option value="all">All time</option><option value="latest">Latest batch</option>';
   Object.entries(batches).forEach(([id, b]) => {
@@ -728,9 +752,9 @@ async function loadBatches() {
   sel.value = state.batch;
 }
 async function loadArtists() {
-  if (!state.character) return;
+  if (!state.reviewCharacter) return;
   const { artists, no_artist } = await api(
-    `/api/artists?character=${encodeURIComponent(state.character)}&view=${state.view}`
+    `/api/artists?character=${encodeURIComponent(state.reviewCharacter)}&view=${state.view}`
   );
   const sel = $("#artist");
   sel.innerHTML = '<option value="all">All artists</option>';
@@ -749,8 +773,9 @@ async function loadArtists() {
 }
 
 async function loadStats() {
-  if (!state.character) return;
-  const s = await api(`/api/stats?character=${encodeURIComponent(state.character)}`);
+  if (!state.reviewCharacter) return;
+  // /api/stats accepts character=all and routes to the global aggregate.
+  const s = await api(`/api/stats?character=${encodeURIComponent(state.reviewCharacter)}`);
   const c = s.counts;
   $("#stat-counts").innerHTML = `
     <li><strong>${c.total}</strong> total images</li>
@@ -805,8 +830,8 @@ async function loadGlobalReport() {
 }
 
 async function loadImages() {
-  if (!state.character) return;
-  const url = `/api/images?character=${encodeURIComponent(state.character)}`
+  if (!state.reviewCharacter) return;
+  const url = `/api/images?character=${encodeURIComponent(state.reviewCharacter)}`
             + `&view=${state.view}&page=${state.page}&per_page=${state.perPage}`
             + `&filter=${state.filter}&batch=${state.batch}`
             + `&artist=${encodeURIComponent(state.artist)}`
@@ -889,17 +914,22 @@ function renderGrid(images) {
   images.forEach(img => {
     const node = tpl.content.cloneNode(true);
     const card = node.querySelector(".card");
-    card.dataset.stem     = img.stem;
-    card.dataset.location = img.location || state.view;
+    card.dataset.stem      = img.stem;
+    card.dataset.character = img.character || state.character;
+    card.dataset.location  = img.location || state.view;
     if (img.votes?.super_like)    card.classList.add("has-super-like");
     if (img.votes?.love)          card.classList.add("has-love");
     if (img.votes?.anatomy_issue) card.classList.add("has-issue");
     if (img.votes?.dislike)       card.classList.add("has-dislike");
 
+    // imgChar is the character that owns this image. With character=all in
+    // review tabs, images come from multiple characters; fall back to
+    // state.character for legacy responses that don't include it.
+    const imgChar = img.character || state.character;
     const im = card.querySelector(".thumb");
     // Default to upscaled version when available and toggle is on
     const useUpscaled = !!img.upscaled_filename;
-    im.src = `/img/${state.character}/${useUpscaled ? img.upscaled_filename : img.filename}`;
+    im.src = `/img/${imgChar}/${useUpscaled ? img.upscaled_filename : img.filename}`;
     im.dataset.originalFilename = img.filename;
     im.dataset.upscaledFilename = img.upscaled_filename || "";
     im.alt = img.label;
@@ -907,6 +937,14 @@ function renderGrid(images) {
 
     card.querySelector(".card-id").textContent = img.id ? `#${String(img.id).padStart(3, "0")}` : "";
     card.querySelector(".label").textContent   = img.label;
+    // Character badge — only visible in all-character review mode
+    const charBadge = card.querySelector(".character-badge");
+    if (charBadge && state.reviewCharacter === "all") {
+      charBadge.textContent = `👤 ${imgChar}`;
+      charBadge.hidden = false;
+    } else if (charBadge) {
+      charBadge.hidden = true;
+    }
 
     const badge = card.querySelector(".location-badge");
     if (img.votes?.bookmark) {
@@ -935,7 +973,7 @@ function renderGrid(images) {
     openOrig.addEventListener("click", e => {
       e.stopPropagation();
       // Always opens the unupscaled original
-      openLightbox(`/img/${state.character}/${img.filename}`);
+      openLightbox(`/img/${imgChar}/${img.filename}`);
     });
 
     // Remix button — open Add prompt modal pre-filled with this image's tags.
@@ -1017,7 +1055,7 @@ function renderGrid(images) {
         upscaleNowBtn.textContent = "⏳ Upscaling…";
         try {
           const r = await postJSON("/api/upscale-one", {
-            character: state.character, stem: img.stem, scale: state.upscaleScale,
+            character: imgChar, stem: img.stem, scale: state.upscaleScale,
           });
           if (r.ok) {
             toast(`🔼 Upscaling ${img.stem} — see Generation page for progress`);
@@ -1037,7 +1075,7 @@ function renderGrid(images) {
     const ta = card.querySelector(".comment");
     ta.value = img.comment || "";
     let saveTimer;
-    const save = () => saveComment(img.stem, ta.value);
+    const save = () => saveComment(imgChar, img.stem, ta.value);
     ta.addEventListener("blur", save);
     ta.addEventListener("input", () => { clearTimeout(saveTimer); saveTimer = setTimeout(save, 1500); });
 
@@ -1052,8 +1090,8 @@ function renderGrid(images) {
       if (e.target.classList.contains("card-id") || e.target.classList.contains("location-badge")) return;
       // Lightbox always shows the highest-res version available
       const best = img.upscaled_filename
-        ? `/img/${state.character}/${img.upscaled_filename}`
-        : `/img/${state.character}/${img.filename}`;
+        ? `/img/${imgChar}/${img.upscaled_filename}`
+        : `/img/${imgChar}/${img.filename}`;
       openLightbox(best);
     });
 
@@ -1092,6 +1130,7 @@ function renderPagination() {
 
 async function toggleVote(card, btn, voteType) {
   const stem  = card.dataset.stem;
+  const imgChar = card.dataset.character || state.character;
   const value = !btn.classList.contains("active");
   btn.classList.toggle("active", value);
   if (voteType === "super_like")    card.classList.toggle("has-super-like", value);
@@ -1101,7 +1140,7 @@ async function toggleVote(card, btn, voteType) {
 
   try {
     const json = await postJSON("/api/vote", {
-      character: state.character, stem, vote_type: voteType, value, view: state.view,
+      character: imgChar, stem, vote_type: voteType, value, view: state.view,
     });
     if (json.moved) {
       const dest = json.moved === "liked" ? "❤️ Liked" : "🗄️ Archive";
@@ -1120,9 +1159,9 @@ async function toggleVote(card, btn, voteType) {
   } catch (e) { console.error("vote failed", e); }
 }
 
-async function saveComment(stem, text) {
+async function saveComment(character, stem, text) {
   try {
-    await postJSON("/api/comment", { character: state.character, stem, comment: text });
+    await postJSON("/api/comment", { character, stem, comment: text });
   } catch (e) { console.error("comment save failed", e); }
 }
 
@@ -1271,6 +1310,22 @@ $("#character").addEventListener("change", e => {
   localStorage.setItem("character", state.character);
   switchPage(state.page_active);
 });
+const reviewCharSel = $("#review-character");
+if (reviewCharSel) {
+  reviewCharSel.value = state.reviewCharacter;
+  reviewCharSel.addEventListener("change", e => {
+    state.reviewCharacter = e.target.value;
+    localStorage.setItem("reviewCharacter", state.reviewCharacter);
+    state.page = 1;
+    state.batch = "all";
+    state.artist = "all";
+    loadBatches();
+    loadArtists();
+    loadImages();
+    // Stats panel re-loads if open
+    if (!$("#stats").classList.contains("hidden")) loadStats();
+  });
+}
 $("#batch").addEventListener("change", e => { state.batch = e.target.value; state.page = 1; loadImages(); });
 $("#filter").addEventListener("change", e => { state.filter = e.target.value; state.page = 1; loadImages(); });
 $("#artist").addEventListener("change", e => { state.artist = e.target.value; state.page = 1; loadImages(); });

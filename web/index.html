@@ -120,6 +120,9 @@
     <button class="tab"        data-view="archive">🗄️ Archive</button>
   </nav>
   <div class="controls subcontrols">
+    <label>Character
+      <select id="review-character"><option value="all">🌐 All characters</option></select>
+    </label>
     <label class="search-wrap">🔎
       <input id="search" type="search" placeholder="Search label / prompt / tag…" autocomplete="off">
     </label>
@@ -371,6 +374,7 @@
     </div>
     <div class="card-body">
       <h4 class="label"></h4>
+      <span class="character-badge muted" hidden></span>
       <div class="tags artist-tags"></div>
       <div class="tags scene-tags"></div>
       <div class="votes primary-votes">

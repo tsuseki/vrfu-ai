@@ -661,7 +661,10 @@ _run_proc: subprocess.Popen | None = None
 def _watch_run(proc: subprocess.Popen, log_path: Path) -> None:
     """Poll the run log and update _run_state in place."""
     global _run_proc
-    pat_progress = re.compile(r"PROGRESS:\s*(\d+)/(\d+)\s+label=(\S+)\s+seed=(\S+)\s+dur=([\d.]+)")
+    # PROGRESS lines may or may not include `char=<name>` — older generate.py
+    # versions don't emit it. The `(?:char=(\S+)\s+)?` makes it optional so
+    # both formats parse cleanly.
+    pat_progress = re.compile(r"PROGRESS:\s*(\d+)/(\d+)\s+label=(\S+)(?:\s+char=(\S+))?\s+seed=(\S+)\s+dur=([\d.]+)")
     pat_total    = re.compile(r"BATCH_START\s+total=(\d+)")
     pat_end      = re.compile(r"BATCH_END")
     last_size = 0
@@ -683,7 +686,11 @@ def _watch_run(proc: subprocess.Popen, log_path: Path) -> None:
                             _run_state["current_index"] = int(m.group(1))
                             _run_state["total"]         = int(m.group(2))
                             _run_state["current_label"] = m.group(3)
-                            _run_state["last_dur_s"]    = float(m.group(5))
+                            # Update character mid-run when the queue is mixed
+                            # (entries can carry their own `character:` field).
+                            if m.group(4):
+                                _run_state["character"] = m.group(4)
+                            _run_state["last_dur_s"]    = float(m.group(6))
                             _run_state["completed"]     = int(m.group(1))
         except Exception:
             pass
@@ -1122,20 +1129,31 @@ class Handler(BaseHTTPRequestHandler):
             artist    = qs.get("artist", ["all"])[0]
             search_q  = qs.get("q", [""])[0].strip().lower()
 
-            meta     = load_images_for_view(character, view)
-            feedback = load_feedback().get(character, {})
-            stems    = list(meta.keys())
+            # Resolve which characters to walk. character=all → every character.
+            if character == "all":
+                characters = C.list_characters()
+            else:
+                characters = [character]
 
-            if view == "output" and batch != "all":
-                bs = assign_batches(character)
-                if batch == "latest" and bs:
-                    stems = bs[max(bs.keys())]["stems"]
-                elif batch in bs:
-                    stems = bs[batch]["stems"]
-                stems = [s for s in stems if s in meta]
+            # Build a flat list of (character, stem, info, fb) tuples so that
+            # stems can collide across characters without overwriting each other.
+            all_feedback = load_feedback()
+            entries = []
+            for cname in characters:
+                cmeta     = load_images_for_view(cname, view)
+                cfeedback = all_feedback.get(cname, {})
+                cstems    = list(cmeta.keys())
+                if view == "output" and batch != "all" and character != "all":
+                    bs = assign_batches(cname)
+                    if batch == "latest" and bs:
+                        cstems = bs[max(bs.keys())]["stems"]
+                    elif batch in bs:
+                        cstems = bs[batch]["stems"]
+                    cstems = [s for s in cstems if s in cmeta]
+                for s in cstems:
+                    entries.append((cname, s, cmeta[s], cfeedback.get(s, {})))
 
-            def matches(stem):
-                fb    = feedback.get(stem, {})
+            def matches(fb):
                 votes = fb.get("votes", {})
                 if filt == "all":          return True
                 if filt == "unvoted":      return not any(votes.values()) and not fb.get("comment", "").strip()
@@ -1153,45 +1171,48 @@ class Handler(BaseHTTPRequestHandler):
                 if filt == "any-positive": return any(votes.get(k) for k in POSITIVE_KEYS)
                 return True
 
-            stems = [s for s in stems if matches(s)]
+            entries = [(c, s, info, fb) for (c, s, info, fb) in entries if matches(fb)]
 
             if artist != "all":
                 if artist == "no-artist":
-                    stems = [s for s in stems if not meta[s].get("artists")]
+                    entries = [(c, s, info, fb) for (c, s, info, fb) in entries
+                               if not info.get("artists")]
                 else:
                     al = artist.lower()
-                    stems = [s for s in stems
-                             if any(a.lower() == al for a in meta[s].get("artists", []))]
+                    entries = [(c, s, info, fb) for (c, s, info, fb) in entries
+                               if any(a.lower() == al for a in info.get("artists", []))]
 
             # Free-text search across label, full prompt, and artist tags.
             # Multiple words = AND (each must match somewhere in the haystack).
             if search_q:
                 terms = [t for t in search_q.split() if t]
-                def hay(stem: str) -> str:
-                    info = meta[stem]
+                def hay(stem, info, fb):
                     return " ".join([
                         stem.lower(),
                         (info.get("label") or "").lower(),
                         (info.get("prompt") or "").lower(),
                         " ".join(info.get("artists") or []).lower(),
-                        (feedback.get(stem, {}).get("comment") or "").lower(),
+                        (fb.get("comment") or "").lower(),
                     ])
-                stems = [s for s in stems if all(t in hay(s) for t in terms)]
+                entries = [(c, s, info, fb) for (c, s, info, fb) in entries
+                           if all(t in hay(s, info, fb) for t in terms)]
 
             # Newest first — higher id = generated more recently.
             # Items without an id (e.g. external imports) fall to the end.
-            stems.sort(key=lambda s: meta[s].get("id") or 0, reverse=True)
-            total = len(stems)
-            page_stems = stems[(page - 1) * per_page: page * per_page]
+            # In all-character mode, ids collide across characters but we can
+            # still rough-sort by them — close enough for review.
+            entries.sort(key=lambda t: t[2].get("id") or 0, reverse=True)
+            total = len(entries)
+            page_entries = entries[(page - 1) * per_page: page * per_page]
 
             images = []
-            for stem in page_stems:
-                info = dict(meta[stem])
-                fb   = feedback.get(stem, {})
-                info["stem"]    = stem
-                info["votes"]   = fb.get("votes", {})
-                info["comment"] = fb.get("comment", "")
-                images.append(info)
+            for cname, stem, info, fb in page_entries:
+                out = dict(info)
+                out["stem"]      = stem
+                out["character"] = cname
+                out["votes"]     = fb.get("votes", {})
+                out["comment"]   = fb.get("comment", "")
+                images.append(out)
 
             return self._send_json({
                 "images": images, "total": total,
@@ -1202,17 +1223,19 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/artists":
             character = char or (C.list_characters() or ["tsu_chocola"])[0]
             view      = qs.get("view", ["output"])[0]
-            meta      = load_images_for_view(character, view)
+            characters = C.list_characters() if character == "all" else [character]
             counts: dict = {}
             no_artist = 0
-            for info in meta.values():
-                artists = info.get("artists", [])
-                if not artists:
-                    no_artist += 1
-                for a in artists:
-                    al = a.strip().lower()
-                    if al:
-                        counts[al] = counts.get(al, 0) + 1
+            for cname in characters:
+                meta = load_images_for_view(cname, view)
+                for info in meta.values():
+                    artists = info.get("artists", [])
+                    if not artists:
+                        no_artist += 1
+                    for a in artists:
+                        al = a.strip().lower()
+                        if al:
+                            counts[al] = counts.get(al, 0) + 1
             ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
             return self._send_json({
                 "artists":   [{"name": a, "count": n} for a, n in ranked],
@@ -1221,6 +1244,8 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/stats":
             character = char or (C.list_characters() or ["tsu_chocola"])[0]
+            if character == "all":
+                return self._send_json(aggregate_stats_global())
             return self._send_json(aggregate_stats(character))
 
         if path == "/api/stats/global":
@@ -1251,6 +1276,13 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/batches":
             character = char or (C.list_characters() or ["tsu_chocola"])[0]
+            # In all-character mode batches don't aggregate cleanly (each
+            # character's batches are independent timestamp-keyed groups
+            # with no shared meaning). Return empty so the UI hides the
+            # batch picker. Per-character batches still work when filtering
+            # to a specific character.
+            if character == "all":
+                return self._send_json({"batches": {}})
             bs = assign_batches(character)
             simple = {bid: {"start": b["start"], "end": b["end"], "count": b["count"]}
                       for bid, b in bs.items()}
