@@ -1703,17 +1703,34 @@ class Handler(BaseHTTPRequestHandler):
 
         # ── Run controls ────────────────────────────────────────────────────
         if path == "/api/queue/sort-by-character":
+            # Optional `order` list in the body: explicit character precedence
+            # for the sort. Characters not in the list keep their alphabetical
+            # tail. Stable within each bucket so the user's intra-character
+            # ordering is preserved.
+            requested_order = body.get("order") or []
             entries = load_queue()
-            # Stable group-by-character: preserve relative order within each
-            # character so the user's intra-character ordering is kept.
             buckets: dict = {}
             for e in entries:
                 buckets.setdefault(e.get("character") or "", []).append(e)
-            sorted_entries: list = []
+            # Order: requested characters first (in user-specified order),
+            # then any unspecified characters alphabetically. Empty bucket
+            # (entries with no character at all) goes last.
+            seen = set()
+            ordered_keys: list[str] = []
+            for cname in requested_order:
+                if cname in buckets and cname not in seen:
+                    ordered_keys.append(cname); seen.add(cname)
             for cname in sorted(buckets.keys()):
+                if cname and cname not in seen:
+                    ordered_keys.append(cname); seen.add(cname)
+            if "" in buckets and "" not in seen:
+                ordered_keys.append("")  # entries missing `character:` go last
+            sorted_entries: list = []
+            for cname in ordered_keys:
                 sorted_entries.extend(buckets[cname])
             save_queue(sorted_entries)
-            return self._send_json({"ok": True, "count": len(sorted_entries)})
+            return self._send_json({"ok": True, "count": len(sorted_entries),
+                                    "order": [k for k in ordered_keys if k]})
 
         if path == "/api/run/start":
             character = body.get("character")

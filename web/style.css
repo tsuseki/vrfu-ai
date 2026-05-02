@@ -583,6 +583,39 @@ button.danger-btn:hover { border-color: var(--danger); }
   font-size: 12px; color: var(--fg-dim);
 }
 
+/* ── Character order chips (drag-reorderable, drives sort precedence) ── */
+.char-order-wrap {
+  display: inline-flex; align-items: center; gap: 8px;
+  margin: 0 12px;
+}
+.char-order-chips {
+  display: inline-flex; gap: 4px; flex-wrap: wrap;
+}
+.char-order-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: var(--bg-3);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font: inherit; font-size: 11px;
+  cursor: grab;
+  user-select: none;
+  transition: background .12s, border-color .12s, opacity .12s;
+}
+.char-order-chip:hover { background: var(--bg-2); }
+.char-order-chip.dragging { opacity: 0.4; cursor: grabbing; }
+.char-order-chip.drag-over { border-color: var(--accent); }
+.char-order-num {
+  font-size: 10px;
+  color: var(--fg-dim);
+  background: var(--bg-2);
+  border-radius: 999px;
+  width: 16px; height: 16px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-weight: 600;
+}
+
 /* ── Generation: active-character picker (moved out of top bar) ──── */
 .gen-character-picker {
   display: flex; align-items: center; gap: 12px;

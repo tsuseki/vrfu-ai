@@ -8,6 +8,9 @@ const state = {
   // that browsing crosses every character. The Generation tab keeps using
   // `state.character` as the active character for editing/running queues.
   reviewCharacter: localStorage.getItem("reviewCharacter") || "all",
+  // User-specified character precedence used by 🔀 Sort by character and
+  // by --order=character at run time. Empty list = alphabetical fallback.
+  characterOrder: JSON.parse(localStorage.getItem("characterOrder") || "[]"),
   page_active: localStorage.getItem("page_active") || "generation",
   // Review state
   view:    "output",
@@ -442,6 +445,11 @@ async function loadCharacters() {
     });
   }
 
+  // Refresh the character-order chips with any newly-discovered characters
+  // appended to the end of the saved order.
+  syncCharacterOrderWithList(characters);
+  renderCharacterOrderChips();
+
   // Populate the Review-tab character picker too. Has an extra "all" option.
   const revSel = $("#review-character");
   if (revSel) {
@@ -457,6 +465,74 @@ async function loadCharacters() {
     }
     revSel.value = state.reviewCharacter;
   }
+}
+
+// ── Character order picker (drag-reorderable chips in run banner) ───────
+// Sets the precedence used by 🔀 Sort by character and (after the unified
+// queue is sorted) the run order. Persisted in localStorage.
+
+function syncCharacterOrderWithList(characters) {
+  // Drop characters that no longer exist
+  state.characterOrder = state.characterOrder.filter(c => characters.includes(c));
+  // Append any new ones at the end so they don't disappear silently
+  characters.forEach(c => {
+    if (!state.characterOrder.includes(c)) state.characterOrder.push(c);
+  });
+  saveCharacterOrder();
+}
+
+function saveCharacterOrder() {
+  localStorage.setItem("characterOrder", JSON.stringify(state.characterOrder));
+}
+
+function renderCharacterOrderChips() {
+  const wrap = $("#char-order-chips");
+  if (!wrap) return;
+  wrap.innerHTML = "";
+  state.characterOrder.forEach((cname, idx) => {
+    const chip = document.createElement("button");
+    chip.className = "char-order-chip";
+    chip.draggable = true;
+    chip.dataset.character = cname;
+    chip.title = "Drag to reorder";
+    chip.innerHTML = `<span class="char-order-num">${idx + 1}</span> ${escapeHTML(cname)}`;
+    wrap.appendChild(chip);
+  });
+
+  // Drag handlers — same pattern as the queue rows
+  let dragChar = null;
+  wrap.querySelectorAll(".char-order-chip").forEach(chip => {
+    chip.addEventListener("dragstart", e => {
+      dragChar = chip.dataset.character;
+      chip.classList.add("dragging");
+      e.dataTransfer.effectAllowed = "move";
+      try { e.dataTransfer.setData("text/plain", dragChar); } catch (_) {}
+    });
+    chip.addEventListener("dragend", () => {
+      chip.classList.remove("dragging");
+      wrap.querySelectorAll(".char-order-chip.drag-over").forEach(c => c.classList.remove("drag-over"));
+    });
+    chip.addEventListener("dragover", e => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      chip.classList.add("drag-over");
+    });
+    chip.addEventListener("dragleave", () => chip.classList.remove("drag-over"));
+    chip.addEventListener("drop", e => {
+      e.preventDefault();
+      chip.classList.remove("drag-over");
+      const droppedOn = chip.dataset.character;
+      if (!dragChar || dragChar === droppedOn) return;
+      const fromIdx = state.characterOrder.indexOf(dragChar);
+      let toIdx    = state.characterOrder.indexOf(droppedOn);
+      if (fromIdx < 0 || toIdx < 0) return;
+      state.characterOrder.splice(fromIdx, 1);
+      if (fromIdx < toIdx) toIdx--;
+      state.characterOrder.splice(toIdx, 0, dragChar);
+      saveCharacterOrder();
+      renderCharacterOrderChips();
+    });
+  });
 }
 
 // ── Generation: model info banner ────────────────────────────────────────
@@ -1807,8 +1883,13 @@ $("#chain-after-training").addEventListener("change", async e => {
 });
 $("#queue-add").addEventListener("click", addPromptModalOpen);
 $("#queue-sort-character").addEventListener("click", async () => {
-  if (!confirm("Reorder the queue so consecutive same-character entries cluster together? This minimizes LoRA switches at run time.")) return;
-  const r = await postJSON("/api/queue/sort-by-character", {});
+  const orderHint = state.characterOrder.length
+    ? `\n\nUsing your character order: ${state.characterOrder.join(" → ")}`
+    : "";
+  if (!confirm(`Reorder the queue so consecutive same-character entries cluster together? This minimizes LoRA switches at run time.${orderHint}`)) return;
+  const r = await postJSON("/api/queue/sort-by-character", {
+    order: state.characterOrder,
+  });
   if (r.ok) {
     toast(`🔀 Sorted ${r.count} prompts by character`);
     loadQueue();
