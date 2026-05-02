@@ -1002,8 +1002,10 @@ let _activeJob = null;
 async function startRun() {
   // Always run in queue order. If you want clustering by character, use
   // the 🔀 Sort by character button in the queue toolbar before starting.
-  // Pre-run warning: if the queue is interleaved across characters, count
-  // the LoRA switches the user is about to incur and offer to sort first.
+  // Pre-run warning: only fire if the queue is *more interleaved than
+  // necessary* — i.e. the user could have sorted to reduce switches but
+  // didn't. A perfectly-sorted N-character queue has exactly N-1 switches;
+  // anything beyond that is wasted LoRA-swap time.
   try {
     const { queue } = await api(`/api/queue`);
     const targets = queue.map(e => e.character || state.character || "");
@@ -1012,10 +1014,12 @@ async function startRun() {
     for (let i = 1; i < targets.length; i++) {
       if (targets[i] !== targets[i - 1]) switches++;
     }
-    if (unique.size > 1 && switches >= 2) {
-      const msg = `Queue has ${unique.size} characters interleaved — ` +
-                  `${switches} LoRA switches (~3-5s each, ~${Math.round(switches * 4)}s total).\n\n` +
-                  `Click "🔀 Sort by character" first to coalesce to ${unique.size - 1} switches.\n\n` +
+    const optimal = Math.max(0, unique.size - 1);
+    if (switches > optimal) {
+      const wasted = switches - optimal;
+      const msg = `Queue has ${unique.size} characters but ${switches} LoRA switches — ` +
+                  `${wasted} more than necessary (~3-5s each, ~${Math.round(wasted * 4)}s wasted).\n\n` +
+                  `Click "🔀 Sort by character" first to coalesce to ${optimal} switches.\n\n` +
                   `Start anyway with the current order?`;
       if (!confirm(msg)) return;
     }
