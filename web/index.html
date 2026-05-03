@@ -60,7 +60,11 @@
           <p class="upscale-hint">1.5 fits a 16 GB card.<br>2.0 needs ~20 GB.</p>
         </div>
       </span>
-      <button id="run-train"     class="run-btn">🎓 Train LoRA</button>
+      <span class="train-group">
+        <label class="muted train-label">Train:</label>
+        <select id="train-character" class="train-character-select"></select>
+        <button id="run-train"     class="run-btn">🎓 Train LoRA</button>
+      </span>
       <button id="run-stop"      class="run-btn danger hidden">⏹ Stop</button>
       <label id="chain-toggle-wrap" class="chain-toggle hidden">
         <input type="checkbox" id="chain-after-upscale">

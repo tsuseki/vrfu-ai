@@ -576,6 +576,20 @@ button.danger-btn:hover { border-color: var(--danger); }
 .queue-table .drag-handle  { user-select: none; cursor: grab; }
 .queue-table tr.dragging .drag-handle { cursor: grabbing; }
 
+/* ── Train-character picker (next to 🎓 Train LoRA button) ─────────── */
+.train-group {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin: 0 4px;
+}
+.train-label { font-size: 12px; }
+.train-character-select {
+  background: var(--bg-3); color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 8px;
+  font: inherit; font-size: 12px;
+}
+
 /* ── Character order chips (drag-reorderable, drives sort precedence) ── */
 /* Lives inside a popover anchored to the gear next to 🔀 Sort by character. */
 .sort-character-group {

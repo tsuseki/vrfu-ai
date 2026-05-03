@@ -445,6 +445,23 @@ async function loadCharacters() {
     });
   }
 
+  // Train-character dropdown next to the 🎓 Train LoRA button. Defaults to
+  // last-used character (state.character) so repeated training of the same
+  // character doesn't require re-picking, but visible so the user can't
+  // train the wrong one by accident.
+  const trainSel = $("#train-character");
+  if (trainSel) {
+    trainSel.innerHTML = "";
+    characters.forEach(c => {
+      const o = document.createElement("option");
+      o.value = c; o.textContent = c;
+      trainSel.appendChild(o);
+    });
+    if (state.character && characters.includes(state.character)) {
+      trainSel.value = state.character;
+    }
+  }
+
   // Refresh the character-order chips with any newly-discovered characters
   // appended to the end of the saved order.
   syncCharacterOrderWithList(characters);
@@ -1049,17 +1066,25 @@ async function startUpscaleFromBanner() {
   pollRunStatus();
 }
 async function startTraining() {
-  if (!confirm(`Start training a LoRA for "${state.character}"?\n\nThis can take 1-3 hours depending on steps. GPU will be busy the whole time — generation and upscaling will be blocked.`)) return;
-  // Snapshot the chain-to-gen toggle state at click time and pass it with the
-  // start request, so the server's chain flag can't drift out of sync with what
-  // the user sees in the UI.
+  // Pick character explicitly from the train-character dropdown next to the
+  // Train button — never fall back to state.character silently, since
+  // training is character-specific and accidentally targeting the wrong
+  // one wastes 1-3 hours of GPU.
+  const sel = $("#train-character");
+  const target = sel ? sel.value : null;
+  if (!target) {
+    toast("Pick a character to train (dropdown next to the Train button).");
+    return;
+  }
+  if (!confirm(`Start training a LoRA for "${target}"?\n\nThis can take 1-3 hours depending on steps. GPU will be busy the whole time — generation and upscaling will be blocked.`)) return;
   const chainToGen = $("#chain-after-training")?.checked || false;
   const r = await postJSON("/api/training/start", {
-    character: state.character,
+    character:    target,
     chain_to_gen: chainToGen,
   });
   if (!r.ok) { toast("Cannot start: " + r.err); return; }
-  toast(chainToGen ? "🎓 Training started — gen will auto-start after" : "🎓 Training started");
+  toast(chainToGen ? `🎓 Training "${target}" — gen will auto-start after`
+                   : `🎓 Training "${target}" started`);
   _activeJob = "training";
   pollRunStatus();
 }
