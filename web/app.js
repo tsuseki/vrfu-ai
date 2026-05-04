@@ -1145,10 +1145,11 @@ async function pollRunStatus() {
     $("#run-train").disabled   = isRunning;
     $("#run-stop").classList.toggle("hidden", !isRunning);
 
-    // Chain toggles
-    $("#chain-toggle-wrap").classList.toggle("hidden", !upRunning);
+    // Chain toggles — always visible so the user can pre-check them BEFORE
+    // kicking off the long-running job. Pre-job state lives only in the
+    // checkbox's `checked`; once the job starts the server's flag becomes
+    // the source of truth and we sync the checkbox from it.
     if (upRunning) $("#chain-after-upscale").checked = !!genStatus.chain_after_upscale;
-    $("#chain-train-toggle-wrap").classList.toggle("hidden", !trRunning);
     // (chain_after_training flag is server-side only; we set it via the toggle change handler)
 
     // Status text adapts to job kind
