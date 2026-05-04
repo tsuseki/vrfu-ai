@@ -1219,11 +1219,20 @@ class Handler(BaseHTTPRequestHandler):
                 entries = [(c, s, info, fb) for (c, s, info, fb) in entries
                            if all(t in hay(s, info, fb) for t in terms)]
 
-            # Newest first — higher id = generated more recently.
-            # Items without an id (e.g. external imports) fall to the end.
-            # In all-character mode, ids collide across characters but we can
-            # still rough-sort by them — close enough for review.
-            entries.sort(key=lambda t: t[2].get("id") or 0, reverse=True)
+            # Newest first. Across characters, `id` is per-character (each
+            # has its own counter), so it doesn't sort meaningfully across
+            # characters. `generated_at` is a global "YYYY-MM-DD HH:MM"
+            # timestamp that sorts lexicographically — primary key. Fall
+            # back to id then filename for entries missing a timestamp
+            # (legacy / imported).
+            entries.sort(
+                key=lambda t: (
+                    t[2].get("generated_at") or "",
+                    t[2].get("id") or 0,
+                    t[2].get("filename") or "",
+                ),
+                reverse=True,
+            )
             total = len(entries)
             page_entries = entries[(page - 1) * per_page: page * per_page]
 
