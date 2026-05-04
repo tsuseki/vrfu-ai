@@ -586,8 +586,13 @@ async function loadQueue() {
     tr.draggable = true;
     tr.dataset.label = entry.label;
     const dim = (entry.width || 1024) + "×" + (entry.height || 1024);
-    const promptTrunc = (entry.prompt || "").slice(0, 90)
-      + ((entry.prompt || "").length > 90 ? "…" : "");
+    // Show only the prompt-unique scene tags in the truncated cell — strip
+    // the character_tags / quality stack / outfit-bundle noise that's the
+    // same on every entry. The full prompt is still in the title attribute
+    // (hover) and in the expandable "📝 prompt" card section.
+    const promptUnique = extractSceneTags(entry.prompt, entry.character, 12).join(", ");
+    const promptTrunc = promptUnique.slice(0, 90)
+      + (promptUnique.length > 90 ? "…" : "");
     const negText  = entry.negative || "";
     const negTrunc = negText.slice(0, 60) + (negText.length > 60 ? "…" : "");
     const negDisplay = negText
@@ -1377,22 +1382,55 @@ function _stripEmphasis(tag) {
   return t.trim();
 }
 
-function extractSceneTags(prompt) {
-  if (!prompt) return [];
-  // Per-character noise: trigger_word, character_tags, AND every outfit
-  // bundle's tags (so "white kimono, red hakama" don't preview when the prompt
-  // used {outfit}, since they were auto-injected).
-  const charNoise = new Set();
-  if (_charInfo) {
-    if (_charInfo.trigger_word) charNoise.add(_charInfo.trigger_word.toLowerCase());
+// Cache of per-character noise sets: { character_name: Set<string> }.
+// Built once from /api/characters/details so we can strip the right
+// character_tags/outfit tags even when an image (or queue entry) belongs
+// to a character that isn't the active one. Falls back to the active
+// character's _charInfo if the cache hasn't loaded yet.
+const _charNoiseCache = new Map();
+
+async function preloadCharacterNoise() {
+  try {
+    const r = await api("/api/characters/details");
     const splitTags = s => s.split(",").map(t => _stripEmphasis(t).toLowerCase()).filter(Boolean);
-    if (_charInfo.character_tags) splitTags(_charInfo.character_tags).forEach(t => charNoise.add(t));
+    for (const c of r.characters || []) {
+      const noise = new Set();
+      if (c.trigger_word)   noise.add(c.trigger_word.toLowerCase());
+      if (c.character_tags) splitTags(c.character_tags).forEach(t => noise.add(t));
+      if (c.outfits && typeof c.outfits === "object") {
+        for (const tags of Object.values(c.outfits)) {
+          if (typeof tags === "string") splitTags(tags).forEach(t => noise.add(t));
+        }
+      }
+      _charNoiseCache.set(c.name, noise);
+    }
+  } catch (e) {
+    console.warn("preloadCharacterNoise failed", e);
+  }
+}
+
+function getCharNoise(characterName) {
+  if (characterName && _charNoiseCache.has(characterName)) {
+    return _charNoiseCache.get(characterName);
+  }
+  // Fallback: build from _charInfo (single active character)
+  const noise = new Set();
+  if (_charInfo) {
+    if (_charInfo.trigger_word)   noise.add(_charInfo.trigger_word.toLowerCase());
+    const splitTags = s => s.split(",").map(t => _stripEmphasis(t).toLowerCase()).filter(Boolean);
+    if (_charInfo.character_tags) splitTags(_charInfo.character_tags).forEach(t => noise.add(t));
     if (_charInfo.outfits && typeof _charInfo.outfits === "object") {
       for (const tags of Object.values(_charInfo.outfits)) {
-        if (typeof tags === "string") splitTags(tags).forEach(t => charNoise.add(t));
+        if (typeof tags === "string") splitTags(tags).forEach(t => noise.add(t));
       }
     }
   }
+  return noise;
+}
+
+function extractSceneTags(prompt, characterName, limit = 8) {
+  if (!prompt) return [];
+  const charNoise = getCharNoise(characterName);
   return prompt.split(",").map(s => s.trim()).filter(Boolean)
     .filter(p => {
       const lo = _stripEmphasis(p).toLowerCase();
@@ -1400,7 +1438,7 @@ function extractSceneTags(prompt) {
           && !NOISY_TAGS.has(lo)
           && !charNoise.has(lo);
     })
-    .slice(0, 8);
+    .slice(0, limit);
 }
 
 function renderGrid(images) {
@@ -1499,7 +1537,7 @@ function renderGrid(images) {
     });
 
     const st = card.querySelector(".scene-tags");
-    extractSceneTags(img.prompt).forEach(t => {
+    extractSceneTags(img.prompt, img.character).forEach(t => {
       const span = document.createElement("span");
       span.className = "tag"; span.textContent = t;
       st.appendChild(span);
@@ -2065,6 +2103,10 @@ $("#add-character-name").addEventListener("keydown", e => {
 // Bootstrap
 (async () => {
   await loadCharacters();
+  // Pre-build per-character noise sets so extractSceneTags() can strip
+  // identity / outfit tags for any character (not just the active one).
+  // Critical when 🌐 All characters review mixes images from many.
+  preloadCharacterNoise();   // fire-and-forget; falls back to _charInfo
   switchPage(state.page_active);
   resumeToolPollIfRunning();
   // Always poll the run banner once on load — picks up running upscale too
