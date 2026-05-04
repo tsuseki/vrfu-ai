@@ -59,6 +59,44 @@ def find_training_config(character: str) -> Path:
     return p
 
 
+def _resolve_paths_against_project(cfg: dict) -> dict:
+    """Walk known path-valued fields in the training_config and rewrite any
+    relative path to absolute (resolved against PROJECT_ROOT). ai-toolkit's
+    Diffusers `from_pretrained()` doesn't re-resolve relative paths, and
+    ai-toolkit's run.py uses cwd=ai-toolkit/, so a config written with
+    `../../checkpoints/foo.safetensors` ends up looking for
+    `F:/checkpoints/foo.safetensors` — wrong.
+
+    Fields rewritten:
+      config.process[N].model.name_or_path     (the base checkpoint)
+      config.process[N].training_folder        (where LoRA weights are saved)
+      config.process[N].datasets[M].folder_path (training images)
+    """
+    def absify(p: str) -> str:
+        if not p:
+            return p
+        path = Path(p)
+        if path.is_absolute():
+            return str(path)
+        # Resolve repo-relative paths (the ones our configs use today) by
+        # joining against the actual project root, then absolute.
+        return str((_PROJECT_ROOT / p).resolve())
+
+    procs = cfg.get("config", {}).get("process", []) or []
+    for proc in procs:
+        if not isinstance(proc, dict):
+            continue
+        m = proc.get("model")
+        if isinstance(m, dict) and "name_or_path" in m:
+            m["name_or_path"] = absify(m["name_or_path"])
+        if "training_folder" in proc:
+            proc["training_folder"] = absify(proc["training_folder"])
+        for ds in proc.get("datasets", []) or []:
+            if isinstance(ds, dict) and "folder_path" in ds:
+                ds["folder_path"] = absify(ds["folder_path"])
+    return cfg
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train a character LoRA via ai-toolkit.")
     parser.add_argument("--character", help="Character name (folder under characters/)")
@@ -69,9 +107,19 @@ def main() -> None:
     char_name = C.resolve_default_character(args.character)
     cfg_path  = find_training_config(char_name)
 
-    # Read total steps so we can compute progress
+    # Read + resolve relative paths into a temp config that ai-toolkit can
+    # actually open. ai-toolkit runs from its own dir (cwd=ai-toolkit/), so
+    # the natural-looking `../../checkpoints/...` in our configs resolves to
+    # the wrong place (one level too deep). We rewrite to absolute paths
+    # against PROJECT_ROOT before spawning, so the config stays portable
+    # (works on every machine that clones the repo, regardless of where).
     with cfg_path.open("r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f) or {}
+    cfg = _resolve_paths_against_project(cfg)
+    # Write the resolved config to a temp file alongside the original
+    resolved_cfg_path = cfg_path.with_suffix(".resolved.yaml")
+    with resolved_cfg_path.open("w", encoding="utf-8") as f:
+        yaml.dump(cfg, f, allow_unicode=True, sort_keys=False)
     total_steps = (
         cfg.get("config", {}).get("process", [{}])[0]
            .get("train", {}).get("steps", 0)
@@ -108,8 +156,9 @@ def main() -> None:
     if not AI_TOOLKIT_RUN.exists():
         sys.exit(f"ERROR: ai-toolkit not found at {AI_TOOLKIT_RUN}")
 
-    # Spawn ai-toolkit. Run from its own directory so its imports resolve.
-    cmd = [str(VENV_PYTHON), str(AI_TOOLKIT_RUN), str(cfg_path)]
+    # Spawn ai-toolkit with the path-resolved config (not the raw one) so
+    # its Diffusers loads find the checkpoint and dataset.
+    cmd = [str(VENV_PYTHON), str(AI_TOOLKIT_RUN), str(resolved_cfg_path)]
     env = os.environ.copy()
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONUNBUFFERED"] = "1"

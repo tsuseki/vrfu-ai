@@ -50,27 +50,11 @@ config:
 
       model:
         # Absolute path — ai-toolkit's run.py runs with cwd=ai-toolkit/ so
-        # relative paths like "../../checkpoints/..." resolve to F:/checkpoints/
+        # relative paths like "checkpoints/..." resolve to F:/checkpoints/
         # which doesn't exist. Diffusers' from_pretrained() doesn't re-resolve.
-        name_or_path: "F:/AI Art/checkpoints/waiIllustriousSDXL_v170.safetensors"
+        name_or_path: "checkpoints/waiIllustriousSDXL_v170.safetensors"
         is_flux: false
         arch: sdxl
-
-      sample:
-        sampler: "ddpm"
-        sample_every: 250
-        width: 1024
-        height: 1024
-        prompts:
-          - "tsu chocola, fox girl, black fox ears, solid black fox tail, black hair, red eyes, red feather hair ornament, side braid, anime girl, solo, white camisole, midriff, navel, off-shoulder black knit cardigan, oversized cardigan, black shorts, drawstring shorts, barefoot, red toenails, looking at viewer, full body, standing, white background, masterpiece, best quality"
-          - "tsu chocola, fox girl, black fox ears, solid black fox tail, black hair, red eyes, red feather hair ornament, anime girl, solo, close-up, face focus, smile, white background, masterpiece, best quality"
-          - "tsu chocola, fox girl, black fox ears, solid black fox tail, black hair, red eyes, red feather hair ornament, anime girl, solo, nude, breasts, small breasts, upper body, white background, masterpiece, best quality"
-          - "tsu chocola, fox girl, black fox ears, solid black fox tail, black hair, red eyes, red feather hair ornament, anime girl, solo, black crop top, harness, black shorts, full body, standing, white background, masterpiece, best quality"
-        neg: "worst quality, low quality, bad anatomy, deformed, blurry, extra limbs, ugly, multiple characters, white tail tip, two-tone tail"
-        seed: 42
-        walk_seed: true
-        guidance_scale: 7
-        sample_steps: 20
 
 meta:
   name: "tsu_chocola"

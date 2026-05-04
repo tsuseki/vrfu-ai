@@ -1,18 +1,12 @@
 ---
-# Training config for the demo character.
-# Only used if you want to TRAIN a LoRA for this slot (rare — the demo slot
-# is meant for quick verification with a LoRA your friend has already trained).
-# To train your own, use ➕ New in the website to create a fresh character
-# from the template instead.
-
 job: extension
 config:
-  name: "demo_character"
+  name: "yokai_manuka"
   process:
     - type: 'sd_trainer'
       training_folder: "loras"
       device: cuda:0
-      trigger_word: "demo character"
+      trigger_word: "yokai manuka"
 
       network:
         type: "lora"
@@ -26,7 +20,7 @@ config:
         push_to_hub: false
 
       datasets:
-        - folder_path: "characters/demo_character/training"
+        - folder_path: "characters/yokai_manuka/training"
           caption_ext: "txt"
           caption_dropout_rate: 0.05
           shuffle_tokens: false
@@ -54,5 +48,5 @@ config:
         arch: sdxl
 
 meta:
-  name: "demo_character"
+  name: "yokai_manuka"
   version: '1.0'

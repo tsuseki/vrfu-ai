@@ -31,6 +31,7 @@ characters/*/upscaled.yaml
 characters/*/liked_images.txt
 characters/*/feedback.json
 characters/*/.queue.bak
+characters/*/training_config.resolved.yaml
 
 # Training images — your friend's data, not yours to ship.
 # Demo character + _template have their own example images that ARE tracked
