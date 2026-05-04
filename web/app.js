@@ -596,6 +596,11 @@ async function loadQueue() {
     const charDisplay = entry.character
       ? `<span class="mono" title="Routes to ${escapeHTML(entry.character)}'s LoRA">${escapeHTML(entry.character)}</span>`
       : `<span class="muted" title="Inherits the run's target character">(default)</span>`;
+    // Artist column — pull artist:NAME from the prompt if any
+    const artistMatch = (entry.prompt || "").match(/artist:([^,]+)/i);
+    const artistDisplay = artistMatch
+      ? `<span class="mono" title="Style anchor: ${escapeHTML(artistMatch[1].trim())}">${escapeHTML(artistMatch[1].trim())}</span>`
+      : `<span class="muted" title="No artist tag — relies on the LoRA's bare style">noart</span>`;
     const lbl = escapeHTML(entry.label);
     const isActive = entry.label === activeLabel;
     const idxLabel = isActive ? "▶️" : (idx + 1);
@@ -609,6 +614,7 @@ async function loadQueue() {
       <td class="muted drag-handle" title="Drag to reorder">⠿ ${idxLabel}</td>
       <td class="mono">${lbl}${isActive ? ' <span class="active-badge">generating</span>' : ""}</td>
       <td>${charDisplay}</td>
+      <td>${artistDisplay}</td>
       <td class="muted">${dim}</td>
       <td class="prompt-cell" title="${escapeHTML(entry.prompt || "")}">${escapeHTML(promptTrunc)}</td>
       <td class="prompt-cell">${negDisplay}</td>
