@@ -838,9 +838,15 @@ button.danger-btn:hover { border-color: var(--danger); }
   cursor: zoom-out;
 }
 .lightbox.hidden { display: none; }
-.lightbox-inner { position: relative; max-width: 95vw; max-height: 95vh; }
-.lightbox img {
+.lightbox-inner {
+  position: relative;
   max-width: 95vw; max-height: 95vh;
+  display: flex; flex-direction: column; align-items: center;
+}
+.lightbox img {
+  max-width: 95vw;
+  /* leave room for the controls bar (and a bit of gap) below the image */
+  max-height: calc(95vh - 60px);
   object-fit: contain; display: block; border-radius: 6px;
 }
 #lightbox-close {
@@ -850,6 +856,82 @@ button.danger-btn:hover { border-color: var(--danger); }
   border-radius: 50%;
   width: 36px; height: 36px;
   font-size: 18px; cursor: pointer;
+}
+.lightbox-nav {
+  position: fixed; top: 50%; transform: translateY(-50%);
+  background: rgba(0,0,0,0.55); color: #fff;
+  border: none; border-radius: 6px;
+  width: 48px; height: 72px; font-size: 32px;
+  cursor: pointer; z-index: 101;
+  transition: background 0.15s;
+}
+.lightbox-nav:hover { background: rgba(255,255,255,0.18); }
+.lightbox-nav:disabled { opacity: 0.2; cursor: default; }
+#lightbox-prev { left: 12px; }
+#lightbox-next { right: 12px; }
+.lightbox-controls {
+  margin-top: 10px;
+  display: flex; align-items: center; gap: 6px;
+  background: rgba(0,0,0,0.7);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 8px;
+  padding: 6px 10px;
+  z-index: 102;
+}
+.lightbox-controls button {
+  background: transparent; color: #fff;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 18px; cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+}
+.lightbox-controls button:hover { background: rgba(255,255,255,0.1); }
+.lightbox-controls button.active {
+  background: rgba(255,255,255,0.18);
+  border-color: rgba(255,255,255,0.4);
+}
+.lightbox-controls .vote-sep {
+  width: 1px; height: 20px;
+  background: rgba(255,255,255,0.2);
+  margin: 0 4px;
+}
+.lightbox-menu {
+  /* anchored to the bottom of .lightbox-inner so it floats just above the
+     controls strip; position is independent of the flex column flow. */
+  position: absolute; bottom: 60px; left: 50%; transform: translateX(-50%);
+  background: rgba(0,0,0,0.92);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 8px;
+  padding: 10px 12px;
+  z-index: 102;
+  min-width: 320px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.lightbox-menu.hidden { display: none; }
+.lightbox-menu .card-menu-row {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+}
+.lightbox-menu .menu-label {
+  color: rgba(255,255,255,0.55);
+  font-size: 12px; margin-right: 4px;
+}
+.lightbox-menu button {
+  background: transparent; color: #fff;
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 13px; cursor: pointer;
+  transition: background 0.1s;
+}
+.lightbox-menu button:hover { background: rgba(255,255,255,0.1); }
+.lightbox-menu button.active {
+  background: rgba(255,255,255,0.2);
+  border-color: rgba(255,255,255,0.5);
+}
+.lightbox-menu button.negative.active {
+  background: rgba(220,80,80,0.25);
+  border-color: rgba(220,80,80,0.6);
 }
 
 /* ── Toast ───────────────────────────────────────────────────────────── */

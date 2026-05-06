@@ -166,7 +166,7 @@
     </label>
     <button id="organize"        class="view-only-output hidden" title="Move output images to Liked or Archive based on votes">📦 Organize</button>
     <span class="upscale-group view-only-liked hidden">
-      <button id="upscale-btn" title="Upscale all images in liked/">🔼 Upscale liked</button>
+      <button id="upscale-btn" title="Upscale every character's liked/ folder (sequential). Per-image upscale is in each card's ⋮ menu.">🔼 Upscale all liked</button>
       <button class="upscale-settings-btn" type="button" title="Upscale settings">⚙</button>
       <div class="upscale-settings-popover hidden">
         <label class="upscale-scale-label">Scale ×<input class="upscale-scale" type="number" min="1.0" max="3.0" step="0.05"></label>
@@ -251,10 +251,34 @@
 
 <!-- ─── Lightbox ────────────────────────────────────────────────────── -->
 <div id="lightbox" class="lightbox hidden">
+  <button id="lightbox-prev" class="lightbox-nav" title="Previous (←)">‹</button>
   <div class="lightbox-inner">
     <img id="lightbox-img" alt="">
     <button id="lightbox-close">✕</button>
+    <div id="lightbox-controls" class="lightbox-controls">
+      <button data-lb-vote="super_like" title="Super like">💜</button>
+      <button data-lb-vote="love"       title="Love">❤️</button>
+      <button data-lb-vote="like"       title="Like">👍</button>
+      <button data-lb-vote="bookmark"   title="Bookmark">🔖</button>
+      <span class="vote-sep"></span>
+      <button id="lightbox-menu-btn" title="More actions">⋮</button>
+    </div>
+    <div id="lightbox-menu" class="lightbox-menu hidden">
+      <div class="card-menu-row">
+        <span class="menu-label">What did you like?</span>
+        <button data-lb-vote="style"  title="Style/artist">🎨 style</button>
+        <button data-lb-vote="prompt" title="Scene/setting">📍 location</button>
+        <button data-lb-vote="pose"   title="Pose">🤸 pose</button>
+        <button data-lb-vote="outfit" title="Outfit">👗 clothes</button>
+      </div>
+      <div class="card-menu-row">
+        <span class="menu-label">Issues</span>
+        <button data-lb-vote="dislike"       title="Dislike — won't repeat" class="negative">👎 skip</button>
+        <button data-lb-vote="anatomy_issue" title="Anatomy issue" class="negative">⚠️ bad anatomy</button>
+      </div>
+    </div>
   </div>
+  <button id="lightbox-next" class="lightbox-nav" title="Next (→)">›</button>
 </div>
 
 <!-- ─── Floating tool widget (upscale progress) ──────────────────── -->

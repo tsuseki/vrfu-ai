@@ -1624,13 +1624,21 @@ function renderGrid(images) {
       if (!img.negative) negBox.classList.add("muted");
     }
 
-    card.querySelector(".thumb-wrap").addEventListener("click", e => {
+    const thumbWrap = card.querySelector(".thumb-wrap");
+    const best = img.upscaled_filename
+      ? `/img/${imgChar}/${img.upscaled_filename}`
+      : `/img/${imgChar}/${img.filename}`;
+    thumbWrap.dataset.lightboxSrc = best;
+    thumbWrap.addEventListener("click", e => {
       if (e.target.classList.contains("card-id") || e.target.classList.contains("location-badge")) return;
-      // Lightbox always shows the highest-res version available
-      const best = img.upscaled_filename
-        ? `/img/${imgChar}/${img.upscaled_filename}`
-        : `/img/${imgChar}/${img.filename}`;
-      openLightbox(best);
+      // Lightbox shows the highest-res version available; collect every visible
+      // card so arrow keys step through them and the lightbox controls can
+      // delegate vote clicks back to the right card.
+      const wraps = Array.from($$("#grid .thumb-wrap[data-lightbox-src]"));
+      const allSrcs  = wraps.map(w => w.dataset.lightboxSrc);
+      const allCards = wraps.map(w => w.closest(".card"));
+      const idx = allSrcs.indexOf(best);
+      openLightbox(best, allSrcs, idx < 0 ? 0 : idx, allCards);
     });
 
     grid.appendChild(node);
@@ -1723,12 +1731,14 @@ async function organizeOutput() {
   } catch (e) { toast("❌ Organize failed"); }
   finally { btn.disabled = false; btn.textContent = "📦 Organize"; }
 }
-// Upscale from the Gallery toolbar (review side). Same all-mode handling.
+// Upscale from the Gallery toolbar (review side). Always walks every character —
+// the toolbar button is labelled "Upscale liked" with tooltip "Upscale all images
+// in liked/" and the user expects a global sweep regardless of which character
+// the review tab is currently filtered to. Per-character upscale is still
+// reachable via the card-menu's "🔼 Upscale now".
 async function startUpscale() {
   // Trigger upscale, then jump to Generation page so the user sees the unified banner.
-  // Use review-tab character context so "all" walks every character sequentially.
-  const target = state.reviewCharacter || state.character;
-  const r = await postJSON("/api/upscale", { character: target, scale: state.upscaleScale });
+  const r = await postJSON("/api/upscale", { character: "all", scale: state.upscaleScale });
   if (r.ok) {
     toast(`🔼 Upscale started @ ${state.upscaleScale}× — see Generation page`);
     switchPage("generation");
@@ -1822,12 +1832,80 @@ async function loadActivity() {
 }
 
 // ── Lightbox ──────────────────────────────────────────────────────────────
-function openLightbox(src) {
-  $("#lightbox-img").src = src;
+let _lbSrcs  = [];
+let _lbCards = [];
+let _lbIndex = 0;
+
+// Sync the lightbox vote/menu buttons' .active state from the current card.
+// The lightbox is a "remote control" for the card — it doesn't track vote state
+// itself, it reflects the card's state and delegates clicks back to it.
+function _lbSyncButtons() {
+  const card = _lbCards[_lbIndex];
+  document.querySelectorAll("#lightbox [data-lb-vote]").forEach(lbBtn => {
+    if (!card) { lbBtn.classList.remove("active"); return; }
+    const v = lbBtn.dataset.lbVote;
+    const cardBtn = card.querySelector(`button[data-vote="${v}"]`);
+    lbBtn.classList.toggle("active", !!(cardBtn && cardBtn.classList.contains("active")));
+  });
+}
+
+function _lbNavigate(idx) {
+  if (!_lbSrcs.length) return;
+  _lbIndex = (idx + _lbSrcs.length) % _lbSrcs.length;
+  $("#lightbox-img").src = _lbSrcs[_lbIndex];
+  const prev = $("#lightbox-prev"); const next = $("#lightbox-next");
+  if (prev) prev.disabled = _lbSrcs.length <= 1;
+  if (next) next.disabled = _lbSrcs.length <= 1;
+  $("#lightbox-menu")?.classList.add("hidden");   // close menu on navigate
+  _lbSyncButtons();
+}
+
+function openLightbox(src, srcs, idx, cards) {
+  if (srcs) {
+    _lbSrcs  = srcs;
+    _lbCards = cards || [];
+    _lbIndex = idx ?? 0;
+  } else {
+    _lbSrcs  = [src];
+    _lbCards = [];
+    _lbIndex = 0;
+  }
+  _lbNavigate(_lbIndex);
   $("#lightbox").classList.remove("hidden");
 }
+
 $("#lightbox").addEventListener("click", e => {
-  if (e.target.id !== "lightbox-img") $("#lightbox").classList.add("hidden");
+  // Click on the dim overlay closes; clicks on the image / controls / menu / nav don't.
+  if (e.target === e.currentTarget) $("#lightbox").classList.add("hidden");
+});
+$("#lightbox-close")?.addEventListener("click", () => $("#lightbox").classList.add("hidden"));
+$("#lightbox-prev")?.addEventListener("click", e => { e.stopPropagation(); _lbNavigate(_lbIndex - 1); });
+$("#lightbox-next")?.addEventListener("click", e => { e.stopPropagation(); _lbNavigate(_lbIndex + 1); });
+
+// Hamburger menu open/close (independent of card menus — this one is fixed
+// inside the lightbox and floats above the controls bar).
+$("#lightbox-menu-btn")?.addEventListener("click", e => {
+  e.stopPropagation();
+  $("#lightbox-menu").classList.toggle("hidden");
+});
+$("#lightbox-menu")?.addEventListener("click", e => e.stopPropagation());
+$("#lightbox-controls")?.addEventListener("click", e => e.stopPropagation());
+
+// Vote/menu button delegation: forward clicks to the underlying card's button
+// of the same data-vote, then re-mirror state. This reuses the card's existing
+// toggleVote handler (vote API call, "moved" toast, archive-on-anatomy, etc.)
+// instead of duplicating the logic.
+document.querySelectorAll("#lightbox [data-lb-vote]").forEach(lbBtn => {
+  lbBtn.addEventListener("click", e => {
+    e.stopPropagation();
+    const card = _lbCards[_lbIndex];
+    if (!card) return;
+    const v = lbBtn.dataset.lbVote;
+    const cardBtn = card.querySelector(`button[data-vote="${v}"]`);
+    if (!cardBtn) return;
+    cardBtn.click();              // triggers toggleVote synchronously toggling .active
+    _lbSyncButtons();
+  });
 });
 
 // ── Wire-up ───────────────────────────────────────────────────────────────
@@ -1952,6 +2030,14 @@ document.addEventListener("click", e => {
   });
 });
 document.addEventListener("keydown", e => {
+  // When the lightbox is open, ←/→ step through the current view's images and
+  // Escape closes — those keys take precedence over the popover-close handler.
+  const lb = $("#lightbox");
+  if (lb && !lb.classList.contains("hidden")) {
+    if (e.key === "ArrowLeft")  { e.preventDefault(); _lbNavigate(_lbIndex - 1); return; }
+    if (e.key === "ArrowRight") { e.preventDefault(); _lbNavigate(_lbIndex + 1); return; }
+    if (e.key === "Escape")     { lb.classList.add("hidden"); return; }
+  }
   if (e.key === "Escape") {
     document.querySelectorAll(".upscale-settings-popover:not(.hidden)").forEach(p => p.classList.add("hidden"));
     document.querySelectorAll(".char-order-popover:not(.hidden)").forEach(p => p.classList.add("hidden"));

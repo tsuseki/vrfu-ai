@@ -611,6 +611,44 @@ def load_queue() -> list[dict]:
 _queue_save_lock = threading.Lock()
 
 
+def _backup_queue(p: Path, new_count: int) -> None:
+    """Snapshot the existing queue before overwriting.
+
+    Always overwrites queue.yaml.last.bak (1-step undo). Additionally writes a
+    timestamped backup under queue.yaml.backups/ when the new save would shrink
+    the queue noticeably (≥10 entries lost OR cleared to empty). Prunes to the
+    20 newest timestamped backups. A previous Sonnet run wiped the unified
+    queue (~400 entries) without warning — these backups exist so a wipe is
+    always recoverable.
+    """
+    if not p.exists() or p.stat().st_size == 0:
+        return
+    try:
+        prev = yaml.safe_load(p.read_text(encoding="utf-8")) or []
+        prev_count = len(prev) if isinstance(prev, list) else 0
+    except Exception:
+        prev_count = 0
+    # Cheap 1-step undo — always written.
+    try:
+        shutil.copy2(p, p.with_suffix(p.suffix + ".last.bak"))
+    except Exception:
+        pass
+    # Shrink-trigger snapshot.
+    lost = prev_count - new_count
+    if prev_count > 0 and (lost >= 10 or new_count == 0):
+        backups_dir = p.parent / "queue.yaml.backups"
+        backups_dir.mkdir(exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+        try:
+            shutil.copy2(p, backups_dir / f"queue.{ts}.yaml")
+        except Exception:
+            pass
+        snaps = sorted(backups_dir.glob("queue.*.yaml"))
+        for old in snaps[:-20]:
+            try: old.unlink()
+            except Exception: pass
+
+
 def save_queue(entries: list[dict]) -> None:
     """Atomic + serialised write of the unified queue.
 
@@ -619,11 +657,14 @@ def save_queue(entries: list[dict]) -> None:
 
     Atomicity: writes to queue.yaml.tmp, then os.replace() onto the final
     path. Atomic on Windows + POSIX.
+
+    Safety: snapshots the previous queue first (see _backup_queue).
     """
     p = C.UNIFIED_QUEUE
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix(p.suffix + ".tmp")
     with _queue_save_lock:
+        _backup_queue(p, len(entries))
         with tmp.open("w", encoding="utf-8") as f:
             f.write(QUEUE_HEADER)
             if entries:

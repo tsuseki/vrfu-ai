@@ -19,7 +19,15 @@ trigger_word: "tsu chocola"
 # tag the outputs render plasticky-3D even with the full anime-coloring
 # style stack. nardack and ningen are the project's tier-A artists for this
 # character. See PROMPTING.md §9.7 (Per-character exceptions).
-character_tags: "1girl, solo, fox girl, black fox ears, black fox tail, black hair, red eyes, red feather hair ornament, side braid"
+# NOTE on cheek diamonds: the v2 training images visibly have one small red
+# diamond mark on each cheek but the captions don't reference them, so the
+# LoRA has no anchor token for them. Tags `facial mark, red diamond facial
+# mark` were used successfully in OLDER (pre-v2) generations — see early
+# entries in archive/done.yaml. They're standard booru tags so vanilla SDXL
+# interprets them, and the v2 LoRA's implicit visual association does the
+# rest. Fidelity won't be perfect (some gens still miss them) — proper fix
+# is recaption training/*.txt with these tags and retrain.
+character_tags: "1girl, solo, fox girl, black fox ears, black fox tail, black hair, red eyes, red feather hair ornament, side braid, facial mark, red diamond facial mark"
 
 # Character-specific negatives — appended to BASE_NEGATIVE only for this
 # character. Used to kill known training artifacts that don't generalize:
