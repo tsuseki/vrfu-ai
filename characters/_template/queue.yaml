@@ -1,0 +1,20 @@
+# PROMPT QUEUE — __CHARACTER_NAME__
+# Add prompts below. Top entry runs first. Completed entries move to archive/done.yaml.
+# See docs/PROMPTING.md for the canonical schema and Danbooru tag conventions.
+#
+# Per-prompt structure:
+#   - label:   short kebab-case identifier (becomes part of the filename)
+#     prompt:  comma-separated tags following Illustrious schema
+#     width:   832 (portrait), 1216 (landscape), or 1024 (square)
+#     height:  matches width opposite
+#     negative: standard negatives + multi-figure protection
+#
+# Example (uncomment the lines below to start):
+#
+# - label: smoke-test-portrait
+#   prompt: 1girl, solo, sensitive, {outfit}, looking at viewer, upper body, simple background, white background, very aesthetic, absurdres
+#   width: 832
+#   height: 1216
+#   negative: 2girls, multiple girls, multiple views, (cropped head:1.4), bad anatomy, bad hands, deformed, lowres, worst quality
+
+[]

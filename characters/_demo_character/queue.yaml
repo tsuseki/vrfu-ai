@@ -1,0 +1,23 @@
+# Demo queue — three smoke-test prompts to verify your install.
+#
+# After dropping your friend's LoRA into loras/characters/demo_character_v1/,
+# updating trigger_word + character_tags in config.yaml, click ▶️ Start.
+# All three should generate within a minute on a 3090, 2-3 minutes on lower-tier GPUs.
+
+- label: smoke-test-portrait
+  prompt: 1girl, solo, sensitive, looking at viewer, upper body, simple background, white background, very aesthetic, absurdres
+  width: 832
+  height: 1216
+  negative: 2girls, multiple girls, multiple views, (cropped head:1.4), bad anatomy, bad hands, deformed, lowres, worst quality
+
+- label: smoke-test-fullbody
+  prompt: 1girl, solo, sensitive, full body, standing, simple background, white background, very aesthetic, absurdres
+  width: 832
+  height: 1216
+  negative: 2girls, multiple girls, multiple views, (cropped head:1.4), bad anatomy, bad hands, deformed, lowres, worst quality
+
+- label: smoke-test-scene
+  prompt: 1girl, solo, sensitive, sitting, cafe interior, soft lighting, very aesthetic, absurdres
+  width: 1216
+  height: 832
+  negative: 2girls, multiple girls, multiple views, (cropped head:1.4), bad anatomy, bad hands, deformed, lowres, worst quality
