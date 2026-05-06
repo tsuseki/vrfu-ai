@@ -176,6 +176,40 @@ The chips also refresh every time you click Organize.
 
 ---
 
+## "NVIDIA GeForce RTX 50xx with CUDA capability sm_120 is not compatible…"
+
+Symptom: `import torch` reports `True` for `cuda.is_available()` but you see a
+warning like *"NVIDIA GeForce RTX 5070 Ti with CUDA capability sm_120 is not
+compatible with the current PyTorch installation. The current PyTorch
+install supports CUDA capabilities sm_50 sm_60 … sm_90"*. Generation
+either crashes or silently falls back to CPU (~50× slower).
+
+Cause: the GPU is **Blackwell** (RTX 50-series). Old PyTorch wheels built
+against CUDA 12.1 don't ship Blackwell kernels. Current `setup.bat`
+installs against CUDA 12.8 by default, but if you set the project up
+before that change you'll be on a cu121 build.
+
+Fix:
+
+```cmd
+ai-toolkit\venv\Scripts\python.exe -m pip install --upgrade torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+ai-toolkit\venv\Scripts\python.exe -m pip install --upgrade torchao peft
+```
+
+Verify:
+
+```cmd
+ai-toolkit\venv\Scripts\python.exe -c "import torch; x=torch.tensor([1.0]).cuda(); print(x*2)"
+```
+
+Should print `tensor([2.], device='cuda:0')` with **no** sm_NNN warning.
+
+If you have a newer GPU than Blackwell, cu128 stable may not be enough —
+try the PyTorch nightly index instead:
+`https://download.pytorch.org/whl/nightly/cu128`.
+
+---
+
 ## Website shows blank / "(no output yet)" but training is running
 
 You restarted the website server while training was in progress. The training subprocess survives (it was spawned with `CREATE_NEW_PROCESS_GROUP`) but the new server process has no record of it, so the UI shows "Idle".
