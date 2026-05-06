@@ -49,8 +49,8 @@ characters/*/last_id.txt
 # ─── Allow scaffolding back in (negate the above where appropriate) ────
 !characters/_template/training/
 !characters/_template/training/**
-!characters/demo_character/training/
-!characters/demo_character/training/**
+!characters/_demo_character/training/
+!characters/_demo_character/training/**
 
 # ─── ai-toolkit submodule — venv + runtime artifacts not in git ─────────
 ai-toolkit/venv/
