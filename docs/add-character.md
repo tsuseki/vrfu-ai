@@ -24,6 +24,39 @@ You need **30–50 reference images** of the character. Tips for a good set:
 
 PNG or JPG, any resolution. The trainer downscales to 512/768/1024 buckets automatically.
 
+### Shot-type breakdown for a 30-image set
+
+If you want a target distribution rather than just "vary the poses", aim for
+roughly:
+
+| Shot type | Count | Notes |
+|---|---|---|
+| Front, full body | 3–4 | Neutral pose, arms visible |
+| Front, upper body | 3–4 | Waist up, face clearly visible |
+| ¾ left, upper body | 3–4 | Most useful angle for anime art |
+| ¾ right, upper body | 3–4 | |
+| Side profile | 2–3 | Left and right |
+| Close-up face | 3–4 | Fill the frame with the face |
+| Back view | 1–2 | Hair / outfit details |
+| Full body, varied poses | 3–4 | T-pose, A-pose, casual stand, sitting |
+
+**Background:** plain solid colour (white, grey, or any flat backdrop) beats
+busy scenes. Cluttered backgrounds end up weakly anchored to the character.
+
+### Capturing references inside VRChat
+
+If your character is a VRChat avatar:
+
+- Use VRChat's **in-game camera** (not a screenshot) with background-blur
+  enabled — gives clean depth-of-field and a smooth backdrop.
+- Pick a world with a plain or low-detail backdrop (a studio world, an empty
+  unity demo scene, a solid-colour skybox). Avoid worlds with text, signage,
+  or busy patterns behind you.
+- Lock the camera then cycle through poses/expressions instead of moving the
+  camera each shot — gives consistent framing across a set.
+- Shoot at 1024×1024 or higher; crop later if needed. Sharper input = sharper
+  LoRA.
+
 ## 3. Caption every image
 
 Each `<image>.png` needs a `<image>.txt` next to it with comma-separated Danbooru tags.

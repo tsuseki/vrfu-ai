@@ -46,6 +46,15 @@ characters/*/write_captions.py
 characters/*/queue.yaml
 characters/*/last_id.txt
 
+# ─── Personal characters: only _demo_character and _template ship ────
+# Every other character/<name>/ folder is the user's private LoRA + data
+# and must not enter the public repo.
+characters/*
+!characters/_demo_character
+!characters/_demo_character/**
+!characters/_template
+!characters/_template/**
+
 # ─── Allow scaffolding back in (negate the above where appropriate) ────
 !characters/_template/training/
 !characters/_template/training/**
