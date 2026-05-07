@@ -185,7 +185,7 @@ function renderCharactersSidebar() {
     });
     sb.appendChild(btn);
   });
-  // ➕ New character at the bottom
+  // ➕ New character + 📥 Import bundle at the bottom
   const sep = document.createElement("hr");
   sep.className = "sidebar-separator";
   sb.appendChild(sep);
@@ -194,6 +194,47 @@ function renderCharactersSidebar() {
   newBtn.textContent = "➕ New character";
   newBtn.addEventListener("click", () => openAddCharacterModal());
   sb.appendChild(newBtn);
+  const importBtn = document.createElement("button");
+  importBtn.className = "sidebar-btn sidebar-btn-new";
+  importBtn.textContent = "📥 Import bundle…";
+  importBtn.title = "Drop in a .zip a friend exported with the 📤 Export button. " +
+    "Unpacks characters/<name>/ + loras/<name>/ into this repo automatically.";
+  importBtn.addEventListener("click", () => importCharacterBundle());
+  sb.appendChild(importBtn);
+}
+
+// Hidden file input + helper to upload a bundle. The server unzips into
+// the repo root; sandboxed paths-only-within-characters/-or-loras/ check
+// happens server-side.
+async function importCharacterBundle() {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = ".zip,application/zip,application/x-zip-compressed";
+  input.addEventListener("change", async () => {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    toast(`Uploading ${file.name} (${(file.size / (1024*1024)).toFixed(1)} MiB)…`);
+    try {
+      const res = await fetch("/api/character/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/zip" },
+        body: file,
+      });
+      const j = await res.json();
+      if (!j.ok) {
+        toast(`❌ Import failed: ${j.err || "unknown error"}`);
+        return;
+      }
+      toast(`✅ Imported ${j.character} — refreshing…`);
+      // Reload the characters page so the new character shows up in the sidebar.
+      _charactersData = null;
+      _charactersActive = `char:${j.character}`;
+      await loadCharactersPage();
+    } catch (e) {
+      toast(`❌ Import error: ${e.message || e}`);
+    }
+  });
+  input.click();
 }
 
 function renderCharactersContent() {
@@ -308,6 +349,7 @@ function renderCharacterEditorHtml(c) {
     </div>
     <div class="char-actions">
       <button id="char-save" class="primary">💾 Save changes</button>
+      <button id="char-export" title="Bundle this character (LoRA + configs) into a .zip you can send to a friend. They unzip it into the root of their vrfu-ai/ clone and the files merge into the right places.">📤 Export bundle…</button>
       <span id="char-save-status" class="muted"></span>
     </div>
   `;
@@ -365,6 +407,24 @@ function wireCharacterEditor(c) {
       status.textContent = "❌ " + e.message;
       toast("Save failed: " + e.message);
     }
+  });
+
+  // 📤 Export bundle. Triggers a browser download of <name>_bundle.zip.
+  // Server-side runs scripts/export_character.py and streams the zip back.
+  const exportBtn = $("#char-export");
+  if (exportBtn) exportBtn.addEventListener("click", () => {
+    exportBtn.disabled = true;
+    const orig = exportBtn.textContent;
+    exportBtn.textContent = "📤 Exporting…";
+    // Re-enable after a short delay; the actual download happens in a new
+    // navigation that the browser handles asynchronously, and we don't have
+    // a clean signal for "the download started".
+    const url = `/api/character/export?character=${encodeURIComponent(c.name)}`;
+    window.location.href = url;
+    setTimeout(() => {
+      exportBtn.disabled = false;
+      exportBtn.textContent = orig;
+    }, 4000);
   });
 }
 
@@ -1522,10 +1582,14 @@ function renderGrid(images) {
       const w = im.naturalWidth  || 1024;
       const h = im.naturalHeight || 1024;
       addPromptModalOpen({
-        label:  (img.label || "remix") + "-remix",
-        prompt: stripUserPrompt(img.prompt),
-        width:  w,
-        height: h,
+        label:     (img.label || "remix") + "-remix",
+        prompt:    stripUserPrompt(img.prompt),
+        width:     w,
+        height:    h,
+        // Default the character dropdown to the image's character — without
+        // this it falls back to the first option in the list, which is wrong
+        // when remixing across characters in all-character review mode.
+        character: img.character || imgChar,
       });
     });
 

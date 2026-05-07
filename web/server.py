@@ -1453,6 +1453,51 @@ class Handler(BaseHTTPRequestHandler):
             event     = qs.get("event", [None])[0]
             return self._send_json({"events": C.read_activity(character, limit, event)})
 
+        # ── Character bundle export (download zip) ──────────────────────────
+        # Wraps scripts/export_character.py. Uses a GET so the browser's
+        # standard download flow handles it — we navigate to this URL from
+        # the UI and the Content-Disposition header triggers a save dialog.
+        if path == "/api/character/export":
+            character = qs.get("character", [""])[0]
+            if not character or character not in C.list_characters():
+                return self._send_json({"ok": False, "err": "unknown character"}, 400)
+            bundle_path = C.ROOT / f"{character}_bundle.zip"
+            # Best-effort cleanup of stale bundle from a previous export.
+            try:
+                if bundle_path.exists():
+                    bundle_path.unlink()
+            except Exception:
+                pass
+            try:
+                result = subprocess.run(
+                    [sys.executable, str(C.SCRIPTS / "export_character.py"),
+                     "--character", character, "--out", str(bundle_path)],
+                    capture_output=True, text=True, timeout=300,
+                )
+            except subprocess.TimeoutExpired:
+                return self._send_json({"ok": False, "err": "export timed out (>5 min)"}, 500)
+            if result.returncode != 0:
+                err = (result.stderr or result.stdout or "unknown error").strip()
+                return self._send_json({"ok": False, "err": f"export failed: {err}"}, 500)
+            if not bundle_path.exists():
+                return self._send_json({"ok": False, "err": "export script ran but no zip produced"}, 500)
+            # Stream the zip with attachment headers.
+            try:
+                size = bundle_path.stat().st_size
+                self.send_response(200)
+                self.send_header("Content-Type", "application/zip")
+                self.send_header("Content-Disposition",
+                    f'attachment; filename="{character}_bundle.zip"')
+                self.send_header("Content-Length", str(size))
+                self.end_headers()
+                with bundle_path.open("rb") as f:
+                    shutil.copyfileobj(f, self.wfile)
+                C.log_event("character_exported", character=character, size=size)
+            except Exception as e:
+                # Headers already sent — can't switch to JSON. Log and bail.
+                print(f"  ERROR streaming export for {character}: {e}", file=sys.stderr)
+            return
+
         # ── Character thumbnail ─────────────────────────────────────────────
         if path == "/api/character/thumbnail":
             character = qs.get("character", [""])[0]
@@ -1534,8 +1579,63 @@ class Handler(BaseHTTPRequestHandler):
             }, 400)
 
     def _do_POST_inner(self):
-        body = self._read_body()
         path = self.path
+
+        # ── Character bundle import (raw zip body) ──────────────────────────
+        # Handled BEFORE _read_body() because the body is binary, not JSON.
+        # Sandbox: only paths starting with characters/<name>/ or loras/<name>/
+        # are extracted, and `..` segments are rejected outright. Anything else
+        # in the zip (a malicious bundle adding files at repo root, or escaping
+        # via path traversal) gets refused before extraction.
+        if path == "/api/character/import":
+            n = int(self.headers.get("Content-Length", 0))
+            if n == 0:
+                return self._send_json({"ok": False, "err": "empty body"}, 400)
+            if n > 5_000_000_000:  # 5 GB ceiling — bigger than any reasonable LoRA bundle
+                return self._send_json({"ok": False, "err": "body too large (>5 GB)"}, 400)
+            body_bytes = self.rfile.read(n)
+            import io as _io
+            import zipfile as _zip
+            try:
+                zf = _zip.ZipFile(_io.BytesIO(body_bytes))
+            except _zip.BadZipFile:
+                return self._send_json({"ok": False, "err": "not a valid zip"}, 400)
+
+            # Safety check + figure out the character name
+            char_names: set[str] = set()
+            for member in zf.namelist():
+                # Reject absolute paths and `..` traversal
+                if member.startswith("/") or ":" in member or ".." in member.split("/"):
+                    return self._send_json({"ok": False, "err":
+                        f"unsafe path in bundle: {member}"}, 400)
+                # Allow exactly: README.md, characters/<name>/..., loras/<name>/...
+                parts = member.split("/")
+                if member == "README.md" or member.endswith("/"):
+                    continue
+                if len(parts) >= 2 and parts[0] in ("characters", "loras"):
+                    char_names.add(parts[1])
+                    continue
+                return self._send_json({"ok": False, "err":
+                    f"bundle member outside characters/ or loras/: {member}"}, 400)
+            if len(char_names) != 1:
+                return self._send_json({"ok": False, "err":
+                    f"bundle must contain exactly one character, found: {sorted(char_names)}"}, 400)
+            char_name = char_names.pop()
+            # Reject anything that doesn't look like a safe identifier
+            if not re.match(r"^[a-zA-Z0-9_\-]+$", char_name):
+                return self._send_json({"ok": False, "err":
+                    f"unsafe character name: {char_name}"}, 400)
+
+            # Extract. zipfile in 3.10+ rejects traversal in extractall, but we
+            # already validated above too.
+            try:
+                zf.extractall(C.ROOT)
+            except Exception as e:
+                return self._send_json({"ok": False, "err": f"extract failed: {e}"}, 500)
+            C.log_event("character_imported", character=char_name, size=n)
+            return self._send_json({"ok": True, "character": char_name})
+
+        body = self._read_body()
 
         if path == "/api/vote":
             character = body.get("character")
