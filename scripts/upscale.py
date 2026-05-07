@@ -160,7 +160,10 @@ def build_pipe(cfg: dict):
     pipe.enable_vae_slicing()
     pipe.vae.enable_tiling()
     total_mib = torch.cuda.get_device_properties(0).total_memory // (1024 * 1024)
-    if total_mib < 20480:
+    cap = torch.cuda.get_device_capability(0) if torch.cuda.is_available() else (0, 0)
+    if total_mib < 20480 and cap < (12, 0):
+        # Attention slicing is dead code on Blackwell because AttnProcessor2_0
+        # (set below) overrides it. Gate to non-Blackwell <20 GB cards.
         pipe.enable_attention_slicing("auto")
         print(f"Low-VRAM mode: attention slicing enabled ({total_mib:,} MiB total).")
 
@@ -169,7 +172,6 @@ def build_pipe(cfg: dict):
     # See generate.py:_apply_perf_defaults for rationale.
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
-    cap = torch.cuda.get_device_capability(0) if torch.cuda.is_available() else (0, 0)
     if cap >= (12, 0):
         if hasattr(torch.backends.cuda, "enable_cudnn_sdp"):
             torch.backends.cuda.enable_cudnn_sdp(True)
@@ -183,6 +185,17 @@ def build_pipe(cfg: dict):
         pipe.unet.set_attn_processor(AttnProcessor2_0())
     except Exception:
         pass
+
+    # 16 GB Blackwell text-encoder offload — same fix as generate.py. Upscale
+    # peaks higher than gen (2x scale → 4x latent area), so this is even more
+    # important here. See generate.py _apply_perf_defaults for the full
+    # rationale; in short: text encoders sit on CPU during UNet/VAE work,
+    # cycle to GPU only for Compel encoding.
+    pipe._needs_te_offload = cap >= (12, 0) and 0 < total_mib < 20480
+    if pipe._needs_te_offload:
+        type(pipe)._execution_device = property(lambda self: torch.device("cuda"))
+        print(f"16 GB Blackwell: text-encoder CPU offload enabled "
+              f"(_execution_device pinned to cuda).")
     # CompelForSDXL hooks into the pipeline's offload mechanism so encoders
     # used here move with the rest of the pipeline. The old Compel(...) ctor
     # takes direct refs to text_encoder objects and breaks under
@@ -212,10 +225,22 @@ def upscale_one(pipe, compel, png: Path, out_path: Path, entry: dict,
     gen = torch.Generator("cuda").manual_seed(seed) if seed else None
     torch.cuda.empty_cache()
 
+    # 16 GB Blackwell text-encoder cycling — see generate.py for rationale.
+    # Cycle to GPU just for Compel, push back to CPU before UNet runs.
+    do_te_offload = bool(getattr(pipe, "_needs_te_offload", False))
+    if do_te_offload:
+        pipe.text_encoder.to("cuda")
+        pipe.text_encoder_2.to("cuda")
+
     # Encode prompts via CompelForSDXL — single call returns matched-length
     # positive + negative embeddings with proper (term:1.5) weighting and
     # long-prompt chunking. The wrapper handles offloaded text encoders.
     enc = compel(main_prompt=prompt or "", negative_prompt=negative or "")
+
+    if do_te_offload:
+        pipe.text_encoder.to("cpu")
+        pipe.text_encoder_2.to("cpu")
+        torch.cuda.empty_cache()
 
     t0 = time.monotonic()
     result = pipe(

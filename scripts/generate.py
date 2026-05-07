@@ -224,17 +224,21 @@ def load_pipeline_base(cfg: dict):
     pipe.enable_vae_slicing()
     pipe.enable_vae_tiling()
     total_mib = torch.cuda.get_device_properties(0).total_memory // (1024 * 1024)
-    if total_mib < 20480:
+    cap = torch.cuda.get_device_capability(0) if torch.cuda.is_available() else (0, 0)
+    if total_mib < 20480 and cap < (12, 0):
+        # Attention slicing is dead code on Blackwell because AttnProcessor2_0
+        # (set in _apply_perf_defaults) overrides it — the slicing call leaves
+        # state behind without taking effect. Gate to non-Blackwell <20 GB cards.
         pipe.enable_attention_slicing("auto")
         print(f"Low-VRAM mode: attention slicing enabled ({total_mib:,} MiB total).")
 
-    _apply_perf_defaults(pipe)
-
     img2img = StableDiffusionXLImg2ImgPipeline.from_pipe(pipe)
+    _apply_perf_defaults(pipe, img2img)
+
     return pipe, img2img
 
 
-def _apply_perf_defaults(pipe) -> None:
+def _apply_perf_defaults(pipe, img2img=None) -> None:
     """Set inference-perf knobs that are wins across all modern NVIDIA GPUs,
     plus Blackwell-specific (sm_120+) overrides.
 
@@ -249,12 +253,20 @@ def _apply_perf_defaults(pipe) -> None:
         its own. Re-applying AttnProcessor2_0 (PyTorch SDPA-using) after
         LoRA load is a known diffusers+peft footgun — done explicitly here
         and again in load_character_lora() below.
+      - On 16 GB Blackwell specifically, fixing compute isn't enough —
+        VRAM peaks at ~15.85 GB during inference (UNet 5.1 + activations
+        7-8 + text encoders 1.8 + VAE 0.3), tipping over Windows' silent
+        sysmem-fallback threshold for a 40-100x slowdown. Surgical fix:
+        keep text encoders on CPU during UNet/VAE work, cycle them to
+        GPU only for Compel encoding (~0.1s/image, freeing 1.8 GB).
+        See generate_image() for the per-image cycling.
     """
     # TF32 — safe on Ampere (sm_80) and newer, ~10-15% matmul speedup.
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
 
     cap = torch.cuda.get_device_capability(0) if torch.cuda.is_available() else (0, 0)
+    total_mib = torch.cuda.get_device_properties(0).total_memory // (1024 * 1024) if torch.cuda.is_available() else 0
     if cap >= (12, 0):
         # Blackwell. Force the right SDP backend — flash-SDP on sm_120 in
         # 2.11 stable yields 24-35s/it; the cuDNN backend is the right path.
@@ -275,6 +287,28 @@ def _apply_perf_defaults(pipe) -> None:
         pipe.unet.set_attn_processor(AttnProcessor2_0())
     except Exception:
         pass
+
+    # 16 GB Blackwell text-encoder offload setup.
+    #
+    # Pin _execution_device on the pipeline class to CUDA so that when the
+    # text encoders are sitting on CPU between images, the pipeline still
+    # generates latents/timestep tensors on CUDA. Without this override the
+    # pipeline iterates components, sees CPU, and tries to run inference
+    # there — fails with "Cannot generate a cpu tensor from a generator of
+    # type cuda".
+    #
+    # The flag pipe._needs_te_offload tells generate_image() to cycle the
+    # text encoders CPU↔GPU around the Compel call. See there for the
+    # per-image logic.
+    pipe._needs_te_offload = cap >= (12, 0) and 0 < total_mib < 20480
+    if pipe._needs_te_offload:
+        _cuda_dev_property = property(lambda self: torch.device("cuda"))
+        type(pipe)._execution_device = _cuda_dev_property
+        if img2img is not None:
+            type(img2img)._execution_device = _cuda_dev_property
+            img2img._needs_te_offload = True
+        print(f"16 GB Blackwell: text-encoder CPU offload enabled "
+              f"(_execution_device pinned to cuda).")
 
 
 def load_character_lora(pipe, cfg: dict, prev_char: str | None = None) -> None:
@@ -386,8 +420,24 @@ def generate_image(pipe, img2img_pipe, compel, entry: dict, id_: int,
     torch.cuda.empty_cache()
     generator = torch.Generator("cuda").manual_seed(int(seed))
 
+    # 16 GB Blackwell: cycle the text encoders to GPU just for Compel
+    # encoding (~0.1s) and push them back to CPU before the UNet starts.
+    # This frees ~1.8 GB during the heavy denoising/VAE phases, keeping
+    # peak VRAM below the sysmem-fallback threshold. The pipe(prompt_embeds=…)
+    # call below doesn't touch text encoders again, so this is safe.
+    # Flag set in _apply_perf_defaults() based on GPU capability + VRAM.
+    do_te_offload = bool(getattr(pipe, "_needs_te_offload", False))
+    if do_te_offload:
+        pipe.text_encoder.to("cuda")
+        pipe.text_encoder_2.to("cuda")
+
     # Encode through Compel — handles (term:1.5) weighting; truncates past 77 tokens
     pos_cond, pos_pool, neg_cond, neg_pool = encode_with_compel(compel, full_prompt, full_negative)
+
+    if do_te_offload:
+        pipe.text_encoder.to("cpu")
+        pipe.text_encoder_2.to("cpu")
+        torch.cuda.empty_cache()
 
     mode = "img2img" if "image" in entry else "txt2img"
     print(f"  [{id_str}] {label}  ({mode})")

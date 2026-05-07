@@ -176,6 +176,22 @@ The chips also refresh every time you click Organize.
 
 ---
 
+## SDXL inference still slow on 16 GB Blackwell after the cuDNN-SDP patch
+
+Symptom: with the cuDNN-SDP fix applied, `nvidia-smi dmon` confirms real compute (~150 W during denoising), the log prints "Blackwell (sm_120) detected — cuDNN SDP enabled.", and yet step times sit at 11–32 s/it instead of the expected 1–2 s/it.
+
+Cause: VRAM peaks around 15.85 GB / 16 GB during inference (UNet ~5 GB + activations ~7–8 GB + text encoders ~1.8 GB + VAE ~0.3 GB). On Windows, NVIDIA's driver silently swaps GPU memory to system RAM over PCIe when you cross the threshold — a 40–100× slowdown that shows as a sustained slow step time. The cuDNN-SDP patch fixes compute; this fix addresses VRAM headroom.
+
+Fixed in `scripts/generate.py` and `scripts/upscale.py` — on detected Blackwell with <20 GB VRAM, the text encoders cycle CPU↔GPU per image: brought to GPU briefly for Compel encoding (~0.1 s), pushed back to CPU before UNet runs. Frees ~1.8 GB during the heavy denoising/VAE phases, keeping peak VRAM under the sysmem-fallback ceiling.
+
+If you have a 16 GB Blackwell card and still see slow inference after `git pull`:
+
+1. Confirm the offload is active — log should print `16 GB Blackwell: text-encoder CPU offload enabled (_execution_device pinned to cuda).`
+2. If you see `Cannot generate a cpu tensor from a generator of type cuda` at generation start, the `_execution_device` override didn't take — diffusers version mismatch. Try `pip install --upgrade diffusers`.
+3. If sysmem fallback persists, watch VRAM during inference (`nvidia-smi -l 1`). If it still climbs above 15.5 GB, drop to 832×1216 (or 1216×832) instead of 1024² — slightly less peak.
+
+---
+
 ## SDXL inference takes 4–8 minutes per image on RTX 50-series (Blackwell)
 
 Symptom: 28-step generation at 1024×1024 takes 4–8 min instead of the ~30–60s expected on a Blackwell card. Step 1 reads ~4–8s/it, step 2 onwards spikes to 18–28s/it. Inconsistent between runs.
