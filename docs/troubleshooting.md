@@ -176,6 +176,50 @@ The chips also refresh every time you click Organize.
 
 ---
 
+## `ModuleNotFoundError: No module named 'torchaudio'` during training
+
+Symptom: `train.py` (or any ai-toolkit job) fails to load with `ModuleNotFoundError: No module named 'torchaudio'`.
+
+Cause: ai-toolkit's `config_modules.py` imports `torchaudio` at the top level. Older versions of `setup.bat` only installed `torch` + `torchvision`, missing `torchaudio`. If you re-installed torch via cu128 manually without `torchaudio`, you'll hit this.
+
+Fix:
+
+```cmd
+ai-toolkit\venv\Scripts\python.exe -m pip install torchaudio --index-url https://download.pytorch.org/whl/cu128
+```
+
+Current `setup.bat` includes `torchaudio` in both pip-install steps, so a fresh `setup.bat` run won't hit this.
+
+---
+
+## `HFValidationError: Repo id must use alphanumeric chars, '-', '_' or '.'` during training
+
+Symptom: `train.py` errors with a long Windows path being mistaken for a HuggingFace repo ID:
+
+```
+HFValidationError: Repo id must use alphanumeric chars, '-', '_' or '.'.
+The name cannot start or end with '-' or '.':
+'C:\Users\you\vrfu-ai\.claude\worktrees\...\checkpoints\waiIllustriousSDXL_v170.safetensors'
+```
+
+Cause: you ran the script from inside a Claude Code worktree (`.claude/worktrees/<name>/`). The naive `Path(__file__).parent.parent` resolves to the worktree, but the worktree only contains git-tracked files — `checkpoints/`, `loras/`, and your personal `characters/<name>/` are gitignored heavy assets that only exist in the main repo. diffusers tried to load the checkpoint from the worktree path, didn't find it, and fell back to interpreting the absolute Windows path as a HuggingFace repo ID, which fails validation.
+
+This is fixed in `scripts/_common.py` — `ROOT` now detects the `.claude/worktrees/<name>/` pattern and resolves to the real project root automatically. If you're seeing this on an older checkout, pull the latest.
+
+Workaround if you can't pull yet: invoke the script with the main-repo path explicitly, not the worktree path:
+
+```cmd
+:: GOOD
+C:\Users\you\vrfu-ai\ai-toolkit\venv\Scripts\python.exe C:\Users\you\vrfu-ai\scripts\train.py --character mari
+
+:: BAD (worktree path)
+C:\Users\you\vrfu-ai\.claude\worktrees\foo\ai-toolkit\venv\Scripts\python.exe C:\Users\you\vrfu-ai\.claude\worktrees\foo\scripts\train.py --character mari
+```
+
+The web UI's `spawn_tool()` already runs scripts from the main repo, so this only bites when running training/generation manually from inside a worktree.
+
+---
+
 ## "NVIDIA GeForce RTX 50xx with CUDA capability sm_120 is not compatible…"
 
 Symptom: `import torch` reports `True` for `cuda.is_available()` but you see a

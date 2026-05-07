@@ -526,9 +526,12 @@ def main() -> None:
         target_char = entry_character(entry, run_target)
         try:
             ctx = get_ctx(target_char)
-        except SystemExit as e:
-            # Bad character name — config not found. Skip the entry rather
-            # than crashing the whole run.
+        except (SystemExit, FileNotFoundError, ValueError) as e:
+            # Skip when the character can't be loaded — e.g. config.yaml is
+            # missing (FileNotFoundError from _common.load_character), the
+            # config is malformed (ValueError), or older code-paths sys.exit'd.
+            # The entry gets shuffled to the back of the queue so the run
+            # continues with the next-character's entries instead of dying.
             print(f"  ERROR resolving character '{target_char}': {e}")
             rest = [x for x in load_yaml(queue_path)
                     if isinstance(x, dict) and x.get("label") != entry["label"]]

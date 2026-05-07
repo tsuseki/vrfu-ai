@@ -20,7 +20,24 @@ import yaml
 # Computed from this file's location: scripts/_common.py is one level deep,
 # so its parent.parent is the repo root. This means the project works wherever
 # the user clones it — no env vars, no config edits.
-ROOT        = Path(__file__).resolve().parent.parent
+#
+# Worktree fix: if this file is being imported from inside `.claude/worktrees/<name>/`
+# (Claude Code creates one of these when the user runs scripts in agent mode),
+# the naive parent.parent points to the worktree, which doesn't have the heavy
+# gitignored assets (checkpoints/, loras/, characters/<personal>/). Resolve to
+# the real project root by trimming everything from `.claude/worktrees/<name>/`
+# inward. Without this, diffusers.from_pretrained() gets a path that doesn't
+# exist and falls back to interpreting it as a HuggingFace repo ID, which fails
+# validation because Windows backslashes aren't valid in HF repo IDs.
+def _resolve_root() -> Path:
+    naive = Path(__file__).resolve().parent.parent
+    parts = naive.parts
+    for i, p in enumerate(parts):
+        if p == ".claude" and i + 1 < len(parts) and parts[i + 1] == "worktrees":
+            return Path(*parts[:i])
+    return naive
+
+ROOT        = _resolve_root()
 CHARACTERS  = ROOT / "characters"
 SCRIPTS     = ROOT / "scripts"
 WEB         = ROOT / "web"
