@@ -24,6 +24,7 @@ SIGTERM is handled gracefully — the current image finishes, then the script ex
 from __future__ import annotations
 
 import argparse
+import os
 import random
 import re
 import signal
@@ -32,6 +33,11 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
+
+# Allocator hint — must be set BEFORE the first `import torch` to take effect.
+# Reduces step-2 stalls caused by free-block coalescing on Blackwell.
+# Default-only, so power users can override via env.
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "max_split_size_mb:1024")
 
 # Force UTF-8 stdout/stderr so em-dashes etc. don't crash on Windows cp932/cp1252.
 # `errors="replace"` keeps the script alive even on legacy code-page consoles.
@@ -222,8 +228,53 @@ def load_pipeline_base(cfg: dict):
         pipe.enable_attention_slicing("auto")
         print(f"Low-VRAM mode: attention slicing enabled ({total_mib:,} MiB total).")
 
+    _apply_perf_defaults(pipe)
+
     img2img = StableDiffusionXLImg2ImgPipeline.from_pipe(pipe)
     return pipe, img2img
+
+
+def _apply_perf_defaults(pipe) -> None:
+    """Set inference-perf knobs that are wins across all modern NVIDIA GPUs,
+    plus Blackwell-specific (sm_120+) overrides.
+
+    Why this is here, not in PyTorch defaults:
+      - TF32 matmul is off-by-default in PyTorch even on Ampere+, costing
+        ~10-15%. Enabling is safe across the board.
+      - On Blackwell, the default flash-SDP backend is broken in 2.11
+        stable — produces 18-28s/it instead of 1-2s/it. cuDNN-backed SDP
+        (added in PyTorch 2.2) routes via cuDNN 9.x's Blackwell flash
+        kernel and gives the expected speed.
+      - peft's LoRA injection swaps the UNet's attention processor for
+        its own. Re-applying AttnProcessor2_0 (PyTorch SDPA-using) after
+        LoRA load is a known diffusers+peft footgun — done explicitly here
+        and again in load_character_lora() below.
+    """
+    # TF32 — safe on Ampere (sm_80) and newer, ~10-15% matmul speedup.
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+
+    cap = torch.cuda.get_device_capability(0) if torch.cuda.is_available() else (0, 0)
+    if cap >= (12, 0):
+        # Blackwell. Force the right SDP backend — flash-SDP on sm_120 in
+        # 2.11 stable yields 24-35s/it; the cuDNN backend is the right path.
+        if hasattr(torch.backends.cuda, "enable_cudnn_sdp"):
+            torch.backends.cuda.enable_cudnn_sdp(True)
+        torch.backends.cuda.enable_flash_sdp(False)
+        torch.backends.cuda.enable_math_sdp(False)
+        torch.backends.cuda.enable_mem_efficient_sdp(True)
+        # cudnn.benchmark on Blackwell can cache a slow kernel for some
+        # input shapes — disable so dispatch is heuristic-driven each call.
+        torch.backends.cudnn.benchmark = False
+        print(f"Blackwell (sm_{cap[0]}{cap[1]}) detected — cuDNN SDP enabled.")
+
+    # Make sure we're using PyTorch's SDPA-backed attention processor; some
+    # diffusers paths default to AttnProcessor (no SDPA) for older support.
+    try:
+        from diffusers.models.attention_processor import AttnProcessor2_0
+        pipe.unet.set_attn_processor(AttnProcessor2_0())
+    except Exception:
+        pass
 
 
 def load_character_lora(pipe, cfg: dict, prev_char: str | None = None) -> None:
@@ -268,6 +319,16 @@ def load_character_lora(pipe, cfg: dict, prev_char: str | None = None) -> None:
         adapter_names.append(lora["name"])
         adapter_weights.append(lora["weight"])
     pipe.set_adapters(adapter_names, adapter_weights=adapter_weights)
+    # peft's LoRA injection replaces the UNet's attention processor with its
+    # own. Re-apply AttnProcessor2_0 so we keep dispatching through PyTorch's
+    # SDPA (which on Blackwell routes to cuDNN's flash kernel — see
+    # _apply_perf_defaults). Without this, post-LoRA inference falls back to
+    # peft's slow processor and step times spike.
+    try:
+        from diffusers.models.attention_processor import AttnProcessor2_0
+        pipe.unet.set_attn_processor(AttnProcessor2_0())
+    except Exception:
+        pass
     # Sampler may differ between characters — re-pick from the new cfg.
     pipe.scheduler = get_scheduler(pipe, cfg.get("sampler", DEFAULT_SAMPLER))
 

@@ -18,12 +18,17 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
+
+# Allocator hint — same rationale as generate.py. Must precede the first
+# `import torch` to take effect on the CUDA allocator.
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "max_split_size_mb:1024")
 
 # Force UTF-8 stdout/stderr so em-dashes etc. don't crash on Windows cp932/cp1252.
 try:
@@ -158,6 +163,26 @@ def build_pipe(cfg: dict):
     if total_mib < 20480:
         pipe.enable_attention_slicing("auto")
         print(f"Low-VRAM mode: attention slicing enabled ({total_mib:,} MiB total).")
+
+    # Same Blackwell perf-defaults as generate.py — TF32, cuDNN-backed SDP,
+    # AttnProcessor2_0 reset (peft replaced it during load_lora_weights above).
+    # See generate.py:_apply_perf_defaults for rationale.
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+    cap = torch.cuda.get_device_capability(0) if torch.cuda.is_available() else (0, 0)
+    if cap >= (12, 0):
+        if hasattr(torch.backends.cuda, "enable_cudnn_sdp"):
+            torch.backends.cuda.enable_cudnn_sdp(True)
+        torch.backends.cuda.enable_flash_sdp(False)
+        torch.backends.cuda.enable_math_sdp(False)
+        torch.backends.cuda.enable_mem_efficient_sdp(True)
+        torch.backends.cudnn.benchmark = False
+        print(f"Blackwell (sm_{cap[0]}{cap[1]}) detected — cuDNN SDP enabled.")
+    try:
+        from diffusers.models.attention_processor import AttnProcessor2_0
+        pipe.unet.set_attn_processor(AttnProcessor2_0())
+    except Exception:
+        pass
     # CompelForSDXL hooks into the pipeline's offload mechanism so encoders
     # used here move with the rest of the pipeline. The old Compel(...) ctor
     # takes direct refs to text_encoder objects and breaks under

@@ -176,6 +176,37 @@ The chips also refresh every time you click Organize.
 
 ---
 
+## SDXL inference takes 4–8 minutes per image on RTX 50-series (Blackwell)
+
+Symptom: 28-step generation at 1024×1024 takes 4–8 min instead of the ~30–60s expected on a Blackwell card. Step 1 reads ~4–8s/it, step 2 onwards spikes to 18–28s/it. Inconsistent between runs.
+
+Cause: PyTorch's default scaled-dot-product attention (SDP) backend on sm_120 in the 2.11 stable line is broken — flash-SDP produces sustained slow dispatches on Blackwell. The fix is routing through cuDNN-backed SDP (`enable_cudnn_sdp(True)`), which uses cuDNN 9.x's Blackwell-native flash kernel.
+
+Fixed in `scripts/generate.py` and `scripts/upscale.py` — both detect sm_120+ at startup and force the cuDNN SDP path, plus enable TF32 matmul and re-apply `AttnProcessor2_0` after every peft LoRA load (peft swaps it for its own slow processor).
+
+If you're seeing this on a customised generate.py:
+
+```python
+# Before `import torch`:
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "max_split_size_mb:1024")
+
+# After pipe.to("cuda") and after every load_lora_weights():
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
+if torch.cuda.get_device_capability(0) >= (12, 0):
+    torch.backends.cuda.enable_cudnn_sdp(True)
+    torch.backends.cuda.enable_flash_sdp(False)
+    torch.backends.cuda.enable_math_sdp(False)
+    torch.backends.cuda.enable_mem_efficient_sdp(True)
+    torch.backends.cudnn.benchmark = False
+from diffusers.models.attention_processor import AttnProcessor2_0
+pipe.unet.set_attn_processor(AttnProcessor2_0())
+```
+
+If step times are still inconsistent (some 1.7s, some 18s) after the patch, check NVIDIA Control Panel → Manage 3D settings → "Power management mode" → set to "Prefer maximum performance". Blackwell's adaptive clock can drop to a low P-state between async work, causing the next call to come up cold.
+
+---
+
 ## `ModuleNotFoundError: No module named 'torchaudio'` during training
 
 Symptom: `train.py` (or any ai-toolkit job) fails to load with `ModuleNotFoundError: No module named 'torchaudio'`.
