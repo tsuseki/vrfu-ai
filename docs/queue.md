@@ -133,7 +133,63 @@ geographically below it should not appear.
 For wider framings (`cowboy shot`, `full body`), the rule inverts: include
 lower-body tags so the model has a target.
 
-## 6. Per-character context to load before writing prompts
+## 6. Reading the user's preferences before writing prompts
+
+The user votes on every generated image (super_like / love / like / style
+/ location / pose / outfit / dislike / anatomy_issue, plus free-form
+comments). **These signals are how you learn what they actually want.**
+When asked to "queue more like the liked ones" or "more X but better",
+read the signals first.
+
+Pulling liked images for a character:
+
+```python
+import json, urllib.request, urllib.parse
+char = "tsu_chocola"
+url = f"http://localhost:8765/api/images?view=liked&character={urllib.parse.quote(char)}&limit=200"
+with urllib.request.urlopen(url, timeout=15) as r:
+    images = json.loads(r.read())["images"]
+
+# Each image has: filename, stem, prompt, negative, votes (dict), comment,
+# artists (list parsed from prompt), character, generated_at, etc.
+```
+
+What to extract:
+
+- **`artists`** field per image: which `artist:NAME` tags fire well for
+  this character? Frequency across liked vs archive is a clean signal.
+- **Framing tokens in `prompt`**: count occurrences of `close-up`,
+  `bust shot`, `upper body`, `cowboy shot`, `full body` across liked.
+  If `bust shot` shows up 3× more in liked than archive, bias new
+  prompts toward bust shots.
+- **Outfit tags**: which named outfits or specific clothing items
+  recur in liked? Drop the ones that only show up in archive.
+- **Vote-type breakdown**: `votes.style: True` means "I liked the style
+  specifically" — that's a stronger artist signal than a generic
+  `votes.like`. `votes.pose: True` means the pose was the win.
+- **Comments**: `comment` field is the user's own free-form notes.
+  Read them; they often contain explicit guidance ("the eyes are
+  off-model" / "love this lighting" / "do more like this").
+
+Pulling negative signals:
+
+```python
+url = f"http://localhost:8765/api/images?view=archive&character={urllib.parse.quote(char)}&limit=200"
+```
+
+Patterns frequent in archive but absent in liked = patterns to **avoid**
+in new prompts. Same goes for `anatomy_issue` votes — if many archived
+images have `artist:X` and `anatomy_issue=True`, downweight or skip
+artist X.
+
+When you propose a new batch back to the user, **say which liked
+patterns informed it.** Something like *"Pulling from your 50 liked
+affection-set images: 32 have artist:nardack, 28 are bust-shot framing,
+12 have heart-shaped pupils with high blush — biasing the new batch
+that direction."* That makes your proposal auditable and the user can
+correct your reading before you queue 50 entries.
+
+## 7. Per-character context to load before writing prompts
 
 Always read `characters/<name>/config.yaml` before queueing for a
 character. Important fields:
@@ -151,7 +207,7 @@ character. Important fields:
   v2 LoRA was trained on grey-bg VRChat shots and renders plasticky-3D
   without one).
 
-## 7. Things that bite
+## 8. Things that bite
 
 - **`1girl, solo`** must be near the front of every prompt; **`2girls,
   multiple girls, multiple views, split screen`** belong in the negative
@@ -171,7 +227,7 @@ character. Important fields:
   When queueing 50+ entries, default to 1024² unless the user wants
   landscape/portrait specifically.
 
-## 8. Pitfalls that cost generations
+## 9. Pitfalls that cost generations
 
 | Symptom | Cause | Fix |
 |---|---|---|
@@ -192,7 +248,7 @@ entry. When remixing programmatically or guiding the user:
 2. Append a meaningful suffix to the label (`-v2`, `-cozy`, etc.) instead of the default `-remix`.
 3. Re-check §5 (close-up rule). If the user is changing framing from full-body to close-up, strip lower-body tags the original had.
 
-## 9. After building — verify and report
+## 10. After building — verify and report
 
 ```python
 # After import
@@ -208,7 +264,7 @@ print("first 5:", [e["label"] for e in q[:5]])
 Tell the user what's queued, in what order, and what the first 3-5 labels
 are so they know what they'll see first when generation starts.
 
-## 10. Cross-references
+## 11. Cross-references
 
 - **Tag schema and prompt-ordering:** [`docs/prompting.md`](prompting.md) — read this before introducing tags you haven't used here before
 - **Curated artist tags that work well:** [`docs/artist-palette.md`](artist-palette.md)

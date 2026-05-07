@@ -1,0 +1,177 @@
+"""
+Export a character (LoRA + configs) as a single .zip a friend can drop into
+their own clone of this repo.
+
+Usage:
+    python scripts/export_character.py --character mari
+    python scripts/export_character.py --character mari --out F:/some/where/mari.zip
+    python scripts/export_character.py --character mari --include-training
+
+What goes in the bundle:
+
+    mari_bundle.zip
+    ├── README.md                                       (auto-generated install guide)
+    ├── characters/mari/config.yaml                     (project-side character config)
+    ├── characters/mari/training_config.yaml            (ai-toolkit training config)
+    ├── loras/mari/mari.safetensors                     (the trained LoRA)
+    ├── loras/mari/checkpoints/mari_*.safetensors       (optional intermediate steps)
+    └── characters/mari/training/                       (only with --include-training)
+
+What's NOT included:
+    - optimizer.pt (training state, not useful for inference, ~half a GB)
+    - liked/, archive/, output/, logs/ (per-user generation history)
+    - the base SDXL checkpoint (too big; receiver downloads separately)
+
+Receiver workflow:
+    1. Clone vrfu-ai, run setup.bat, run download_models.bat
+    2. Unzip the bundle into the repo root — files land in the right places
+    3. Open the website, navigate to Characters tab, edit the imported
+       character to set character_tags + outfits if not already filled in
+    4. Click ▶️ Start to verify
+
+This script writes paths repo-relative so it works regardless of where the
+sender or receiver cloned the repo.
+"""
+from __future__ import annotations
+
+import argparse
+import re
+import sys
+import zipfile
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import _common as C   # noqa: E402
+
+
+BUNDLE_README = """\
+# {pretty} character bundle
+
+Drop the contents of this archive into the **root of your `vrfu-ai` clone**
+(the folder with `launch_website.bat`). Folders will merge with what's
+already there:
+
+```
+vrfu-ai/
+├── characters/{name}/                         (this bundle)
+│   ├── config.yaml
+│   ├── training_config.yaml
+│   └── training/                              (only if sender used --include-training)
+└── loras/{name}/
+    ├── {name}.safetensors                     (the LoRA)
+    └── checkpoints/                           (intermediate training steps)
+```
+
+## After unzipping
+
+1. **Open the website** (`launch_website.bat`).
+2. **Navigate to the Characters tab.**
+3. **Click {pretty}.** Verify `character_tags`, `outfits.default`, and any
+   per-character notes look right. Edit through the form if needed and Save.
+4. **Click ▶️ Start** on the Generation tab to verify generation works.
+
+## Notes from the sender
+
+- Trigger word: `{trigger}`
+- LoRA file: `loras/{name}/{name}.safetensors` ({lora_size_mib} MiB)
+- Trained against: {checkpoint}
+
+## If something doesn't work
+
+- **"No config.yaml for character"** — the unzip didn't land in the right
+  place. Files must be at `characters/{name}/config.yaml`, not nested
+  deeper or at the wrong root.
+- **LoRA loads but character looks generic** — `character_tags` is too
+  short. Edit it through the Characters tab to add identity anchors
+  (hair, eyes, ears, distinguishing features).
+- **Generation looks plasticky / 3D** — the LoRA may need an artist tag
+  on every prompt. Check the sender's notes in `config.yaml` (top of
+  file, comment block) for character-specific quirks.
+
+See `docs/troubleshooting.md` in the main repo for more.
+"""
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Bundle a character + LoRA for sharing.")
+    parser.add_argument("--character", required=True, help="Character name (folder under characters/).")
+    parser.add_argument("--out", help="Output .zip path. Defaults to <character>_bundle.zip in repo root.")
+    parser.add_argument("--include-training", action="store_true",
+                        help="Include training/ images + captions. Off by default — they're large and may be NSFW.")
+    parser.add_argument("--include-checkpoints", action="store_true", default=True,
+                        help="Include loras/<name>/checkpoints/ (intermediate training steps). On by default.")
+    parser.add_argument("--no-checkpoints", dest="include_checkpoints", action="store_false")
+    args = parser.parse_args()
+
+    name = args.character
+    char_dir = C.char_dir(name)
+    if not (char_dir / "config.yaml").exists():
+        sys.exit(f"ERROR: no characters/{name}/config.yaml — character not found.")
+
+    # Read enough of config.yaml to write a useful bundle README.
+    cfg = C.load_character(name)
+    pretty = cfg.get("character_name") or name
+    trigger = cfg.get("trigger_word") or name
+    checkpoint = cfg.get("checkpoint") or "checkpoints/<base SDXL>.safetensors"
+
+    lora_path = C.ROOT / cfg["character_lora"]
+    if not lora_path.exists():
+        sys.exit(f"ERROR: LoRA not found at {lora_path}")
+    lora_size_mib = lora_path.stat().st_size // (1024 * 1024)
+
+    # Default output path
+    out_path = Path(args.out) if args.out else (C.ROOT / f"{name}_bundle.zip")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Collect files to include — (source absolute path, archive-relative path)
+    files: list[tuple[Path, str]] = []
+
+    # Project-side configs
+    files.append((char_dir / "config.yaml",         f"characters/{name}/config.yaml"))
+    tcfg = char_dir / "training_config.yaml"
+    if tcfg.exists():
+        files.append((tcfg,                          f"characters/{name}/training_config.yaml"))
+
+    # Main LoRA + intermediate checkpoints
+    files.append((lora_path,                         f"loras/{name}/{lora_path.name}"))
+    if args.include_checkpoints:
+        ckpt_dir = lora_path.parent / "checkpoints"
+        if ckpt_dir.is_dir():
+            for ck in sorted(ckpt_dir.glob("*.safetensors")):
+                files.append((ck,                    f"loras/{name}/checkpoints/{ck.name}"))
+
+    # Optional training set
+    if args.include_training:
+        train_dir = char_dir / "training"
+        if train_dir.is_dir():
+            for f in sorted(train_dir.iterdir()):
+                if f.is_file() and f.suffix.lower() in (".png", ".jpg", ".jpeg", ".txt"):
+                    files.append((f,                 f"characters/{name}/training/{f.name}"))
+
+    # Auto-generated README inside the bundle
+    bundle_readme = BUNDLE_README.format(
+        pretty=pretty, name=name, trigger=trigger, checkpoint=checkpoint,
+        lora_size_mib=lora_size_mib,
+    )
+
+    total_bytes = sum(p.stat().st_size for p, _ in files)
+    print(f"Bundling {pretty} ({name})")
+    print(f"  files: {len(files)}")
+    print(f"  size:  {total_bytes / (1024**3):.2f} GiB" if total_bytes > 1024**3
+          else f"  size:  {total_bytes / (1024**2):.1f} MiB")
+    print(f"  out:   {out_path}")
+
+    with zipfile.ZipFile(out_path, "w", zipfile.ZIP_STORED) as z:
+        # ZIP_STORED (no compression) — safetensors + PNG don't compress meaningfully
+        # and STORED is dramatically faster for ~500MB-2GB bundles.
+        for src, arc in files:
+            z.write(src, arc)
+        z.writestr("README.md", bundle_readme)
+
+    print(f"\nWrote {out_path} ({out_path.stat().st_size / (1024**2):.1f} MiB)")
+    print(f"Send the .zip via Discord / email / cloud storage. The receiver "
+          f"unzips it into their vrfu-ai/ root.")
+
+
+if __name__ == "__main__":
+    main()
