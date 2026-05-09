@@ -47,9 +47,41 @@ import _common as C   # noqa: E402
 BUNDLE_README = """\
 # {pretty} character bundle
 
-Drop the contents of this archive into the **root of your `vrfu-ai` clone**
-(the folder with `launch_website.bat`). Folders will merge with what's
-already there:
+This bundle is a {pretty} LoRA + configs for the **vrfu-ai** pipeline:
+<https://github.com/tsuseki/vrfu-ai>
+
+## If you don't have vrfu-ai yet
+
+Clone the repo first (the `--recursive` flag pulls the ai-toolkit submodule):
+
+```cmd
+git clone --recursive https://github.com/tsuseki/vrfu-ai.git
+cd vrfu-ai
+setup.bat
+download_models.bat
+```
+
+See <https://github.com/tsuseki/vrfu-ai/blob/main/docs/install.md> for the
+full install walkthrough.
+
+## Install the bundle (recommended: use the website)
+
+1. **Open the website** — run `launch_website.bat` in your vrfu-ai folder.
+2. **Go to the Characters tab.**
+3. **Click 📥 Import bundle…** at the bottom of the character sidebar.
+4. **Pick this `.zip`.** The server unpacks it into the right places
+   (`characters/{name}/` + `loras/{name}/`) and validates the contents.
+5. **Click {pretty}** in the sidebar. Verify `character_tags`,
+   `outfits.default`, and any per-character notes look right. Edit
+   through the form if needed and Save.
+6. **Click ▶️ Start** on the Generation tab to verify generation works.
+
+## Manual install (fallback)
+
+If the import button isn't available (e.g. you're setting up before
+launching the website for the first time), unzip the contents into the
+**root of your `vrfu-ai` clone** (the folder with `launch_website.bat`).
+Folders will merge with what's already there:
 
 ```
 vrfu-ai/
@@ -62,13 +94,8 @@ vrfu-ai/
     └── checkpoints/                           (intermediate training steps)
 ```
 
-## After unzipping
-
-1. **Open the website** (`launch_website.bat`).
-2. **Navigate to the Characters tab.**
-3. **Click {pretty}.** Verify `character_tags`, `outfits.default`, and any
-   per-character notes look right. Edit through the form if needed and Save.
-4. **Click ▶️ Start** on the Generation tab to verify generation works.
+Then open the website, go to the Characters tab, click {pretty}, verify
+the config, and click ▶️ Start to test generation.
 
 ## Notes from the sender
 
@@ -88,7 +115,8 @@ vrfu-ai/
   on every prompt. Check the sender's notes in `config.yaml` (top of
   file, comment block) for character-specific quirks.
 
-See `docs/troubleshooting.md` in the main repo for more.
+See <https://github.com/tsuseki/vrfu-ai/blob/main/docs/troubleshooting.md>
+for more.
 """
 
 

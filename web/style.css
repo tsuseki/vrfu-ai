@@ -339,18 +339,6 @@ button.danger-btn:hover { border-color: var(--danger); }
   vertical-align: middle;
 }
 
-.chain-toggle {
-  display: flex; align-items: center; gap: 6px;
-  font-size: 12px; color: var(--fg-dim);
-  background: var(--bg-3);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 4px 10px;
-  cursor: pointer;
-  user-select: none;
-}
-.chain-toggle:hover { color: var(--fg); border-color: var(--accent-2); }
-.chain-toggle input { margin: 0; }
 .row-actions { white-space: nowrap; display: flex; gap: 4px; }
 .row-btn {
   background: transparent; color: var(--fg-dim);

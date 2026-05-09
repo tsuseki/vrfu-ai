@@ -215,6 +215,7 @@ def make_image_info(stem: str, png: Path, by_label: dict, location: str,
         "artists":      parse_artists(prompt),
         "category":     parse_category(label),
         "location":     location,
+        "multi_girl":   bool(entry.get("multi_girl")),
     }
     # Only SDXL hires-fix output (_2k.png) counts as "upscaled" for the UI.
     # RealESRGAN (_up.png) files are kept on disk as archive/fallback but
@@ -401,9 +402,12 @@ def organize_output(character: str) -> dict:
         stem  = png.stem
         votes = feedback.get(stem, {}).get("votes", {})
         is_positive = any(votes.get(k) for k in POSITIVE_KEYS)
-        is_disliked = votes.get("dislike")
+        # anatomy_issue is treated as a hard negative alongside dislike — an
+        # image flagged "⚠️ bad anatomy" routes to archive even if the user
+        # also tagged it with positive signals like 🎨 style or 👗 outfit.
+        is_negative = votes.get("dislike") or votes.get("anatomy_issue")
 
-        if is_positive and not is_disliked:
+        if is_positive and not is_negative:
             dest = liked_dir / png.name
             try:
                 if dest.exists(): dest.unlink()
@@ -682,11 +686,6 @@ def make_unique_label(base: str, existing: set) -> str:
 
 
 # ─── Run control (subprocess management) ─────────────────────────────────────
-# Map: character -> True if a generation should auto-start when upscale finishes successfully
-_chain_after_upscale: dict[str, bool] = {}
-# Map: character -> True if a generation should auto-start when training finishes successfully
-_chain_after_training: dict[str, bool] = {}
-
 _run_state = {
     "state":         "idle",       # idle | running | completed | error
     "character":     None,
@@ -900,14 +899,10 @@ def _watch_tool(tool_name: str, proc: subprocess.Popen, log_path: Path) -> None:
         _tool_procs.pop(tool_name, None)
         chain_char = None
         chain_after = None
-        if proc.returncode == 0 and tool_name == "upscale":
+        if proc.returncode == 0 and tool_name in ("upscale", "training"):
             char = _tool_state[tool_name].get("character")
-            if char and _chain_after_upscale.pop(char, False):
-                chain_char, chain_after = char, "upscale"
-        elif proc.returncode == 0 and tool_name == "training":
-            char = _tool_state[tool_name].get("character")
-            if char and _chain_after_training.pop(char, False):
-                chain_char, chain_after = char, "training"
+            if char:
+                chain_char, chain_after = char, tool_name
     # Outside the lock, kick off the chained generation
     if chain_char:
         print(f"[chain] {chain_after} finished — auto-starting generation for {chain_char}")
@@ -1371,9 +1366,10 @@ class Handler(BaseHTTPRequestHandler):
             character = char or (C.list_characters() or ["tsu_chocola"])[0]
             user_prompt = qs.get("prompt", [""])[0] or ""
             user_negative = qs.get("negative", [""])[0] or ""
+            multi_girl = qs.get("multi_girl", ["0"])[0] in ("1", "true", "True")
             cfg_path = C.char_dir(character) / "config.yaml"
             cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) if cfg_path.exists() else {}
-            entry = {"prompt": user_prompt, "negative": user_negative}
+            entry = {"prompt": user_prompt, "negative": user_negative, "multi_girl": multi_girl}
             try:
                 full_prompt, full_negative = prompt_build.build_prompt(entry, cfg)
                 return self._send_json({
@@ -1426,8 +1422,6 @@ class Handler(BaseHTTPRequestHandler):
             with _run_lock:
                 state = dict(_run_state)
             state["latest_image"] = latest_image(state["character"]) if state.get("character") else None
-            char = char or state.get("character")
-            state["chain_after_upscale"] = bool(_chain_after_upscale.get(char, False)) if char else False
             return self._send_json(state)
 
         if path == "/api/run/log":
@@ -1663,14 +1657,18 @@ class Handler(BaseHTTPRequestHandler):
 
             moved = None
             # Bookmark votes never trigger movement — they're just a flag.
-            if view in ("liked", "archive") and vote_type != "bookmark":
+            if view in ("output", "liked", "archive") and vote_type != "bookmark":
                 all_votes   = entry["votes"]
                 is_positive = any(all_votes.get(k) for k in POSITIVE_KEYS)
-                is_disliked = all_votes.get("dislike")
-                if view == "liked" and is_disliked:
+                # anatomy_issue is a hard negative — sit it next to dislike for
+                # routing. Marking an image with bad anatomy means "I don't
+                # want to keep this in the liked pool", so it should leave the
+                # liked/output set even without a separate 👎 vote.
+                is_negative = all_votes.get("dislike") or all_votes.get("anatomy_issue")
+                if view in ("output", "liked") and is_negative:
                     if move_image(character, stem, "archive"):
                         moved = "archive"
-                elif view == "archive" and is_positive and not is_disliked:
+                elif view == "archive" and is_positive and not is_negative:
                     if move_image(character, stem, "liked"):
                         moved = "liked"
             return self._send_json({"ok": True, "moved": moved})
@@ -1724,6 +1722,10 @@ class Handler(BaseHTTPRequestHandler):
             for k in ("width", "height", "seed", "steps", "guidance", "negative"):
                 if body.get(k) not in (None, ""):
                     new_entry[k] = body[k]
+            # multi_girl is a boolean that prompt_build.build_prompt reads —
+            # only persist it when truthy so default-false entries stay clean.
+            if body.get("multi_girl"):
+                new_entry["multi_girl"] = True
             entries.insert(0, new_entry)   # PREPEND so it runs next
             save_queue(entries)
             C.log_event("queue_added", character=character, label=label)
@@ -1749,6 +1751,10 @@ class Handler(BaseHTTPRequestHandler):
                     for k in ("character", "negative"):
                         if k in e and e[k] == "":
                             del e[k]
+                    # multi_girl is a boolean — drop the key when false so
+                    # the entry doesn't carry `multi_girl: false` noise.
+                    if "multi_girl" in e and not e["multi_girl"]:
+                        del e["multi_girl"]
                     found = True
                     break
             if not found:
@@ -1918,17 +1924,6 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/run/stop":
             return self._send_json(run_stop())
 
-        if path == "/api/run/chain-after-upscale":
-            character = body.get("character")
-            enabled   = bool(body.get("enabled", True))
-            if not character:
-                return self._send_json({"ok": False, "err": "missing character"}, 400)
-            if enabled:
-                _chain_after_upscale[character] = True
-            else:
-                _chain_after_upscale.pop(character, None)
-            return self._send_json({"ok": True, "chain_after_upscale": enabled})
-
         # ── Character creation ──────────────────────────────────────────────
         if path == "/api/character/create":
             name = (body.get("name") or "").strip()
@@ -1989,25 +1984,10 @@ class Handler(BaseHTTPRequestHandler):
             if not cfg.exists():
                 return self._send_json({"ok": False,
                     "err": f"No training_config.yaml at {cfg}. Create one first."}, 400)
-            # Capture chain-to-gen intent atomically with the start request so
-            # restarts / character-switches / page reloads can't silently drop it.
-            if body.get("chain_to_gen"):
-                _chain_after_training[character] = True
             return self._send_json(spawn_tool("training", character, "train.py"))
 
         if path == "/api/training/stop":
             return self._send_json(stop_tool("training"))
-
-        if path == "/api/training/chain-to-gen":
-            character = body.get("character")
-            enabled   = bool(body.get("enabled", True))
-            if not character:
-                return self._send_json({"ok": False, "err": "missing character"}, 400)
-            if enabled:
-                _chain_after_training[character] = True
-            else:
-                _chain_after_training.pop(character, None)
-            return self._send_json({"ok": True, "chain_after_training": enabled})
 
         if path == "/api/upscale-one":
             character = body.get("character")

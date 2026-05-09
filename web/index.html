@@ -66,14 +66,6 @@
         <button id="run-train"     class="run-btn">🎓 Train LoRA</button>
       </span>
       <button id="run-stop"      class="run-btn danger hidden">⏹ Stop</button>
-      <label id="chain-toggle-wrap" class="chain-toggle">
-        <input type="checkbox" id="chain-after-upscale">
-        ⛓ Auto-start gen after upscale
-      </label>
-      <label id="chain-train-toggle-wrap" class="chain-toggle">
-        <input type="checkbox" id="chain-after-training">
-        ⛓ Auto-start gen after training
-      </label>
       <span id="run-status" class="run-status">Idle</span>
       <span id="run-eta" class="run-eta"></span>
     </div>
@@ -396,6 +388,12 @@
         <label class="radio-option"><input type="radio" name="resolution" value="landscape">🖼️ Landscape <span class="muted">1216×832</span></label>
       </div>
     </div>
+
+    <label class="multi-girl-toggle" title="Strips '1girl, solo' from character_tags AND removes the multi-girl negatives so the model can render clone scenarios / multi-character scenes. Pair with weighting like (2girls:1.6) in the prompt.">
+      <input type="checkbox" id="add-multi-girl">
+      👯 Multi-girl mode
+      <span class="muted">(strips 1girl/solo + multi-figure negatives — for clone scenes, 2girls, etc.)</span>
+    </label>
 
     <div class="modal-buttons">
       <button id="add-cancel">Cancel</button>

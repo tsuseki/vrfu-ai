@@ -88,6 +88,12 @@ function toast(msg, ms = 2400) {
   clearTimeout(_toastTimer);
   _toastTimer = setTimeout(() => el.classList.add("hidden"), ms);
 }
+// Display label for a character key. The '_base' pseudo-character routes
+// to the bare checkpoint with no LoRA/character_tags — give it a clearer
+// label in dropdowns so it doesn't read as a malformed folder name.
+function characterLabel(c) {
+  return c === "_base" ? "🎨 (no character — base only)" : c;
+}
 function escapeHTML(s) {
   return String(s).replace(/[&<>"']/g, ch => ({
     "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;",
@@ -485,7 +491,7 @@ async function loadCharacters() {
   sel.innerHTML = "";
   characters.forEach(c => {
     const o = document.createElement("option");
-    o.value = c; o.textContent = c;
+    o.value = c; o.textContent = characterLabel(c);
     sel.appendChild(o);
   });
   if (!state.character || !characters.includes(state.character)) {
@@ -500,7 +506,7 @@ async function loadCharacters() {
     while (addSel.options.length > 1) addSel.remove(1);
     characters.forEach(c => {
       const o = document.createElement("option");
-      o.value = c; o.textContent = c;
+      o.value = c; o.textContent = characterLabel(c);
       addSel.appendChild(o);
     });
   }
@@ -512,12 +518,13 @@ async function loadCharacters() {
   const trainSel = $("#train-character");
   if (trainSel) {
     trainSel.innerHTML = "";
-    characters.forEach(c => {
+    // _base has no LoRA to train — keep it out of the train picker.
+    characters.filter(c => c !== "_base").forEach(c => {
       const o = document.createElement("option");
-      o.value = c; o.textContent = c;
+      o.value = c; o.textContent = characterLabel(c);
       trainSel.appendChild(o);
     });
-    if (state.character && characters.includes(state.character)) {
+    if (state.character && characters.includes(state.character) && state.character !== "_base") {
       trainSel.value = state.character;
     }
   }
@@ -534,7 +541,7 @@ async function loadCharacters() {
     while (revSel.options.length > 1) revSel.remove(1);
     characters.forEach(c => {
       const o = document.createElement("option");
-      o.value = c; o.textContent = c;
+      o.value = c; o.textContent = characterLabel(c);
       revSel.appendChild(o);
     });
     if (!characters.includes(state.reviewCharacter) && state.reviewCharacter !== "all") {
@@ -572,7 +579,7 @@ function renderCharacterOrderChips() {
     chip.draggable = true;
     chip.dataset.character = cname;
     chip.title = "Drag to reorder";
-    chip.innerHTML = `<span class="char-order-num">${idx + 1}</span> ${escapeHTML(cname)}`;
+    chip.innerHTML = `<span class="char-order-num">${idx + 1}</span> ${escapeHTML(characterLabel(cname))}`;
     wrap.appendChild(chip);
   });
 
@@ -778,6 +785,9 @@ async function loadQueue() {
         prompt:       entry.prompt,
         width:        entry.width,
         height:       entry.height,
+        negative:     entry.negative,
+        character:    entry.character,
+        multi_girl:   entry.multi_girl,
       });
     });
   });
@@ -822,12 +832,14 @@ function stripUserPrompt(fullPrompt) {
 let _editingLabel = null;
 
 function addPromptModalOpen(prefill) {
-  // prefill: { label?, prompt?, width?, height?, editingLabel? }   (seeds are always random)
+  // prefill: { label?, prompt?, width?, height?, multi_girl?, editingLabel? }
+  // (seeds are always random)
   prefill = prefill || {};
   _editingLabel = prefill.editingLabel || null;
   $("#add-label").value    = prefill.label    || "";
   $("#add-prompt").value   = prefill.prompt   || "";
   $("#add-negative").value = prefill.negative || "";
+  $("#add-multi-girl").checked = !!prefill.multi_girl;
   populateAddCharacterSelect(prefill.character);
   refreshPromptPreview();
   // Pick resolution radio
@@ -867,7 +879,7 @@ async function populateAddCharacterSelect(currentValue) {
     }
     characters.forEach(c => {
       const o = document.createElement("option");
-      o.value = c; o.textContent = c;
+      o.value = c; o.textContent = characterLabel(c);
       sel.appendChild(o);
     });
   } catch (e) {
@@ -889,11 +901,13 @@ async function refreshPromptPreview() {
     if (!state.character) return;
     const userPrompt   = $("#add-prompt").value;
     const userNegative = $("#add-negative").value;
+    const multiGirl    = $("#add-multi-girl") && $("#add-multi-girl").checked;
     const params = new URLSearchParams({
       character: state.character,
       prompt:    userPrompt,
       negative:  userNegative,
     });
+    if (multiGirl) params.set("multi_girl", "1");
     try {
       const r = await api(`/api/prompt-preview?${params}`);
       if (r.ok === false) {
@@ -985,6 +999,7 @@ async function addPromptModalSave() {
   const prompt    = $("#add-prompt").value.trim();
   const negative  = $("#add-negative").value.trim();
   const character = $("#add-character").value.trim();
+  const multiGirl = $("#add-multi-girl").checked;
   if (!prompt) { toast("Prompt is required"); return; }
   if (!character && !_editingLabel) {
     toast("Pick a character (the entry needs to know which LoRA to use)");
@@ -996,8 +1011,9 @@ async function addPromptModalSave() {
   if (_editingLabel) {
     // UPDATE existing entry. Empty string for character means "remove the
     // override and inherit queue default" — explicitly setting it to "" is
-    // intentional; don't filter it out.
-    const fields = { prompt, width: w, height: h, negative, character };
+    // intentional; don't filter it out. multi_girl is sent as a real bool
+    // (false strips the field server-side so the entry stays clean).
+    const fields = { prompt, width: w, height: h, negative, character, multi_girl: multiGirl };
     if (label && label !== _editingLabel) fields.label = label;
     const r = await postJSON("/api/queue/update", {
       character: state.character,
@@ -1026,6 +1042,7 @@ async function addPromptModalSave() {
     height:    h,
   };
   if (negative) body.negative = negative;
+  if (multiGirl) body.multi_girl = true;
   // Note: per-entry character override is sent in body too — server handler
   // adds it to the entry if non-empty (without conflicting with the top-level
   // `character` field that picks the queue file).
@@ -1047,6 +1064,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const el = document.getElementById(id);
     if (el) el.addEventListener("input", refreshPromptPreview);
   });
+  const mg = document.getElementById("add-multi-girl");
+  if (mg) mg.addEventListener("change", refreshPromptPreview);
 });
 
 // Append a tag to the prompt textarea (no double-add)
@@ -1148,23 +1167,18 @@ async function startTraining() {
     return;
   }
   if (!confirm(`Start training a LoRA for "${target}"?\n\nThis can take 1-3 hours depending on steps. GPU will be busy the whole time — generation and upscaling will be blocked.`)) return;
-  const chainToGen = $("#chain-after-training")?.checked || false;
-  const r = await postJSON("/api/training/start", {
-    character:    target,
-    chain_to_gen: chainToGen,
-  });
+  const r = await postJSON("/api/training/start", { character: target });
   if (!r.ok) { toast("Cannot start: " + r.err); return; }
-  toast(chainToGen ? `🎓 Training "${target}" — gen will auto-start after`
-                   : `🎓 Training "${target}" started`);
+  toast(`🎓 Training "${target}" — gen will auto-start after`);
   _activeJob = "training";
   pollRunStatus();
 }
 async function stopRun() {
-  if (!confirm("Stop the current job?")) return;
   if (_activeJob === "upscale") {
     const r = await postJSON("/api/tool/stop", { tool: "upscale" });
     toast(r.ok ? "Stop signal sent to upscaler" : "Stop error: " + r.err);
   } else if (_activeJob === "training") {
+    if (!confirm("Stop the current training job?")) return;
     const r = await postJSON("/api/training/stop", {});
     toast(r.ok ? "Stop signal sent to training" : "Stop error: " + r.err);
   } else {
@@ -1215,13 +1229,6 @@ async function pollRunStatus() {
     $("#run-upscale").disabled = isRunning;
     $("#run-train").disabled   = isRunning;
     $("#run-stop").classList.toggle("hidden", !isRunning);
-
-    // Chain toggles — always visible so the user can pre-check them BEFORE
-    // kicking off the long-running job. Pre-job state lives only in the
-    // checkbox's `checked`; once the job starts the server's flag becomes
-    // the source of truth and we sync the checkbox from it.
-    if (upRunning) $("#chain-after-upscale").checked = !!genStatus.chain_after_upscale;
-    // (chain_after_training flag is server-side only; we set it via the toggle change handler)
 
     // Status text adapts to job kind
     const labels = {
@@ -1582,14 +1589,15 @@ function renderGrid(images) {
       const w = im.naturalWidth  || 1024;
       const h = im.naturalHeight || 1024;
       addPromptModalOpen({
-        label:     (img.label || "remix") + "-remix",
-        prompt:    stripUserPrompt(img.prompt),
-        width:     w,
-        height:    h,
+        label:      (img.label || "remix") + "-remix",
+        prompt:     stripUserPrompt(img.prompt),
+        width:      w,
+        height:     h,
         // Default the character dropdown to the image's character — without
         // this it falls back to the first option in the list, which is wrong
         // when remixing across characters in all-character review mode.
-        character: img.character || imgChar,
+        character:  img.character || imgChar,
+        multi_girl: img.multi_girl,
       });
     });
 
@@ -1856,7 +1864,6 @@ async function pollToolStatus() {
 }
 async function stopTool() {
   if (!_toolPollName) return;
-  if (!confirm(`Stop the running ${_toolPollName}?`)) return;
   const r = await postJSON("/api/tool/stop", { tool: _toolPollName });
   if (r.ok) toast("Stop signal sent");
   else toast("❌ " + r.err);
@@ -2120,18 +2127,6 @@ $("#run-start").addEventListener("click", startRun);
 $("#run-upscale").addEventListener("click", startUpscaleFromBanner);
 $("#run-train").addEventListener("click", startTraining);
 $("#run-stop").addEventListener("click", stopRun);
-$("#chain-after-upscale").addEventListener("change", async e => {
-  const r = await postJSON("/api/run/chain-after-upscale", {
-    character: state.character, enabled: e.target.checked,
-  });
-  if (r.ok) toast(r.chain_after_upscale ? "Generation will auto-start when upscale finishes" : "Auto-start cancelled");
-});
-$("#chain-after-training").addEventListener("change", async e => {
-  const r = await postJSON("/api/training/chain-to-gen", {
-    character: state.character, enabled: e.target.checked,
-  });
-  if (r.ok) toast(r.chain_after_training ? "Generation will auto-start when training finishes" : "Auto-start cancelled");
-});
 $("#queue-add").addEventListener("click", addPromptModalOpen);
 $("#queue-sort-character").addEventListener("click", async () => {
   const orderHint = state.characterOrder.length

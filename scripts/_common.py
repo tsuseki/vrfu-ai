@@ -58,13 +58,15 @@ def list_characters() -> list[str]:
     """All characters with a config.yaml present.
 
     Folders starting with '_' (e.g. '_template', '_cache') are skipped — they're
-    project scaffolding, not real characters.
+    project scaffolding, not real characters. Exception: '_base' is the
+    no-LoRA pseudo-character (base checkpoint only) and is intentionally
+    surfaced so the UI can route prompts to it.
     """
     if not CHARACTERS.exists():
         return []
     return sorted(p.name for p in CHARACTERS.iterdir()
                   if p.is_dir()
-                  and not p.name.startswith("_")
+                  and (p.name == "_base" or not p.name.startswith("_"))
                   and (p / "config.yaml").exists())
 
 
@@ -97,9 +99,12 @@ def load_character(name: str) -> dict:
     if missing:
         raise ValueError(f"config.yaml for '{name}' is missing: {missing}")
 
-    # Resolve path-valued fields against ROOT
+    # Resolve path-valued fields against ROOT. character_lora may be an
+    # empty string for the no-LoRA pseudo-character ('_base') — leave it
+    # empty so generate.py's load_character_lora() can skip the load.
     cfg["checkpoint"]     = _resolve_project_path(cfg["checkpoint"])
-    cfg["character_lora"] = _resolve_project_path(cfg["character_lora"])
+    if cfg["character_lora"]:
+        cfg["character_lora"] = _resolve_project_path(cfg["character_lora"])
     if isinstance(cfg.get("extra_loras"), list):
         for lora in cfg["extra_loras"]:
             if isinstance(lora, dict) and lora.get("path"):

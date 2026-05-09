@@ -141,15 +141,19 @@ def append_upscale_log(character: str, record: dict) -> None:
 
 def build_pipe(cfg: dict):
     checkpoint = Path(cfg["checkpoint"])
-    char_lora  = Path(cfg["character_lora"])
+    char_lora_path = cfg.get("character_lora") or ""
     print(f"Loading checkpoint: {checkpoint.name}")
     pipe = StableDiffusionXLImg2ImgPipeline.from_single_file(
         str(checkpoint), torch_dtype=torch.float16, use_safetensors=True,
     )
     pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(pipe.scheduler.config)
-    print(f"Loading LoRA: {char_lora.name} @ {LORA_WEIGHT}")
-    pipe.load_lora_weights(str(char_lora.parent), weight_name=char_lora.name, adapter_name="character")
-    pipe.set_adapters(["character"], adapter_weights=[LORA_WEIGHT])
+    if char_lora_path:
+        char_lora = Path(char_lora_path)
+        print(f"Loading LoRA: {char_lora.name} @ {LORA_WEIGHT}")
+        pipe.load_lora_weights(str(char_lora.parent), weight_name=char_lora.name, adapter_name="character")
+        pipe.set_adapters(["character"], adapter_weights=[LORA_WEIGHT])
+    else:
+        print("No character LoRA — upscaling with base checkpoint only.")
     # Same VRAM strategy as generate.py: VAE slicing + tiling, plus
     # attention slicing on <20 GB cards to keep the attention peak in
     # real VRAM (otherwise Sysmem Fallback causes 40x slowdowns).

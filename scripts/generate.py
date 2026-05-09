@@ -319,19 +319,39 @@ def load_character_lora(pipe, cfg: dict, prev_char: str | None = None) -> None:
     (if any). When switching, we delete the prior 'character' adapter (and
     any extras keyed by name) before loading the new one — peft would
     otherwise stack adapters and silently double-apply the previous one.
-    """
-    char_lora = Path(cfg["character_lora"])
-    if not char_lora.exists():
-        sys.exit(f"ERROR: character LoRA not found at {char_lora}")
 
-    # Drop any previously-loaded adapters so we start clean. delete_adapters
-    # is best-effort — if nothing's loaded yet (first call), it raises and
-    # we just continue.
+    Empty `cfg["character_lora"]` means the '_base' pseudo-character: drop
+    any prior adapter and run with the bare checkpoint, no LoRA mixed in.
+    """
+    char_lora_path = cfg.get("character_lora") or ""
+
+    # Always clear any prior 'character' adapter — needed both for the
+    # _base case (no replacement coming) and for normal switches.
     if prev_char is not None:
         try:
             pipe.delete_adapters(["character"])
         except Exception:
             pass
+
+    if not char_lora_path:
+        # _base mode: no LoRA. Make sure no adapters are active so the
+        # prior character's LoRA doesn't bleed through.
+        try:
+            pipe.set_adapters([], adapter_weights=[])
+        except Exception:
+            pass
+        try:
+            from diffusers.models.attention_processor import AttnProcessor2_0
+            pipe.unet.set_attn_processor(AttnProcessor2_0())
+        except Exception:
+            pass
+        pipe.scheduler = get_scheduler(pipe, cfg.get("sampler", DEFAULT_SAMPLER))
+        print("No character LoRA — running base checkpoint only.")
+        return
+
+    char_lora = Path(char_lora_path)
+    if not char_lora.exists():
+        sys.exit(f"ERROR: character LoRA not found at {char_lora}")
 
     loras = [{"path": char_lora, "name": "character",
               "weight": cfg.get("character_lora_weight", 0.85)}]
@@ -553,24 +573,46 @@ def main() -> None:
     C.migrate_per_character_queues_if_needed()
     queue_path = C.UNIFIED_QUEUE
 
-    # Per-character context cache. Run-target loaded eagerly; others
-    # populated lazily when an entry first routes to them.
-    ctx_cache: dict[str, CharContext] = {run_target: CharContext(run_target)}
+    # Load the queue first so all-character mode can pick a real character
+    # to bootstrap the pipeline with — "all" is a meta-target, not a folder.
+    queue = [e for e in load_yaml(queue_path) if isinstance(e, dict)]
+    if not queue:
+        print("Queue is empty. Add prompts to queue.yaml and run again.")
+        sys.exit(0)
+
+    # In all-character mode, bootstrap with the first queue entry's character
+    # (or the first available character if no entry specifies one). The cache
+    # keys are real character names — "all" never appears as a key.
+    if run_target == "all":
+        bootstrap_char = next(
+            (e.get("character") for e in queue if e.get("character")),
+            None,
+        ) or next(iter(C.list_characters()), None)
+        if not bootstrap_char:
+            raise SystemExit("--character all requested but no characters found")
+    else:
+        bootstrap_char = run_target
+
+    # Per-character context cache. Bootstrap loaded eagerly; others populated
+    # lazily when an entry first routes to them.
+    ctx_cache: dict[str, CharContext] = {bootstrap_char: CharContext(bootstrap_char)}
     def get_ctx(name: str) -> CharContext:
         if name not in ctx_cache:
             ctx_cache[name] = CharContext(name)
         return ctx_cache[name]
 
-    run_ctx = ctx_cache[run_target]
-    print(f"=== {run_ctx.cfg.get('character_name', run_target)} ===")
+    run_ctx = ctx_cache[bootstrap_char]
+    if run_target == "all":
+        print(f"=== all characters (bootstrap: {bootstrap_char}) ===")
+    else:
+        print(f"=== {run_ctx.cfg.get('character_name', run_target)} ===")
     print(f"Trigger : {run_ctx.cfg['trigger_word']}")
     print(f"Base    : {Path(run_ctx.cfg['checkpoint']).name}")
-    print(f"LoRA    : {Path(run_ctx.cfg['character_lora']).name} @ {run_ctx.cfg.get('character_lora_weight', 0.85)}\n")
+    if run_ctx.cfg.get("character_lora"):
+        print(f"LoRA    : {Path(run_ctx.cfg['character_lora']).name} @ {run_ctx.cfg.get('character_lora_weight', 0.85)}\n")
+    else:
+        print("LoRA    : (none — base checkpoint only)\n")
 
-    queue = [e for e in load_yaml(queue_path) if isinstance(e, dict)]
-    if not queue:
-        print("Queue is empty. Add prompts to queue.yaml and run again.")
-        sys.exit(0)
     print(f"Found {len(queue)} prompt(s) in queue.\n")
 
     # Count LoRA switches the user is about to incur and warn if --order original
@@ -609,7 +651,7 @@ def main() -> None:
     check_vram()
     pipe, img2img_pipe = load_pipeline_base(run_ctx.cfg)
     load_character_lora(pipe, run_ctx.cfg)
-    current_lora_char = run_target
+    current_lora_char = bootstrap_char
     compel = make_compel(pipe)
     print("Compel weighting active: (term:1.5), [term], etc. respected. "
           "Long prompts (>77 tokens) are chunked and concatenated.\n")
