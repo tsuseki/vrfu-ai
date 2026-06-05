@@ -99,10 +99,10 @@ Then either:
 - **Train your own** — see [`docs/add-character.md`](docs/add-character.md).
 
 The bundled `_demo_character/` is a worked example — `tsu_chocola`'s real
-config + 3 SFW reference images, copied verbatim — so you can see what a
-working character looks like before setting up your own. It's seeded into
-the database on first launch and appears in the character dropdown; drop the
-`tsu_chocola` LoRA at `loras/tsu_chocola/tsu_chocola.safetensors` to run it.
+config + 3 SFW reference images, copied verbatim — so you can see how a real
+character is wired up (config, captioned training images, outfits) before
+setting up your own. It's reference material: a hidden folder, not shown in
+the character dropdown.
 
 ## Documentation
 

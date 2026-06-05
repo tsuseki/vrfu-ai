@@ -23,10 +23,13 @@
   <div class="modal-card">
     <h2>New character</h2>
     <p class="muted">
-      Creates an empty character folder from the template. After clicking
-      Create, drop training images into <code>characters/&lt;name&gt;/training/</code>,
-      caption them, edit <code>config.yaml</code>, then click 🎓 Train LoRA.
-      See <a href="/docs/ADD_NEW_CHARACTER.md" target="_blank">the setup guide</a> for the full flow.
+      Creates the character and registers it in the database. After clicking
+      Create: drop 30–50 training images into
+      <code>characters/&lt;name&gt;/training/</code> and tag each one — a browser
+      tagger like <a href="https://huggingface.co/spaces/SmilingWolf/wd-tagger" target="_blank" rel="noopener">WD14&nbsp;Tagger</a>
+      makes this quick — then open the <strong>Characters</strong> tab to fill in
+      the trigger word, tags and outfits, and click 🎓 Train LoRA.
+      Full walkthrough in the <strong>Docs</strong> tab → <em>add-character</em>.
     </p>
     <label class="modal-field">
       Name <span class="muted">(lowercase, a–z 0–9 _, e.g. <code>my_character</code>)</span>

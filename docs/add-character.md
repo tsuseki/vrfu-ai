@@ -78,11 +78,19 @@ red toenails, long hair, side braid, full body, standing, facing viewer, blush
 
 ### Captioning options
 
-- **Manual** — type each .txt by hand. Slow but precise.
-- **Helper script** — write a Python file that loops through images and writes captions, like `characters/cocoa_mizu/write_captions.py`. Good when most images share an identity prefix.
-- **AI captioning** — use a tool like [WD14 Tagger](https://huggingface.co/SmilingWolf/wd-vit-large-tagger-v3) or [BLIP](https://huggingface.co/Salesforce/blip-image-captioning-large) to bulk-caption, then hand-edit. Fastest for large sets.
+- **Browser tagger (easiest, no install)** — drop each image into a WD14 tagger
+  web app like **[SmilingWolf/wd-tagger](https://huggingface.co/spaces/SmilingWolf/wd-tagger)**.
+  It returns Danbooru-style tags; paste them into the image's `.txt`, then tidy:
+  put your `trigger_word` first, drop wrong tags, keep it under ~60 tokens.
+- **Manual** — type each `.txt` by hand. Slow but precise; fine for a small set.
+- **Helper script** — loop over the images and write the shared identity prefix
+  automatically, then hand-edit per-image specifics. Good when most images share
+  the same identity tags.
 
-Whichever route, **review every caption before training**. Wrong tags = wrong LoRA.
+For a worked example, open the captioned images in
+`characters/_demo_character/training/` — each `.png` has a sibling `.txt` so you
+can see exactly which tags map to which image. Whichever route you take,
+**review every caption before training** — wrong tags = wrong LoRA.
 
 ## 4. Fill in the character's config
 

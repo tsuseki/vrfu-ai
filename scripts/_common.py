@@ -60,17 +60,17 @@ def char_dir(name: str) -> Path:
 def list_characters() -> list[str]:
     """All characters with a config in the DB. Replaces the old
     filesystem walk for `characters/*/config.yaml`. Names starting
-    with '_' are excluded as project scaffolding, except '_base'
-    (the no-LoRA pseudo-character) and '_demo_character' (the shipped
-    demo), which are real selectable characters.
+    with '_' are excluded as project scaffolding (`_template`,
+    `_demo_character`), except '_base' (the no-LoRA pseudo-character),
+    which is a real selectable character.
     """
     # Lazy import to avoid circular dependency (store imports _common).
     import store  # scripts/ is on sys.path for all entry points
-    # `_base` (no-LoRA pseudo-character) and `_demo_character` (the shipped
-    # demo) are real, selectable characters despite the leading underscore;
-    # every other `_`-prefixed name is scaffolding (e.g. `_template`).
+    # `_base` (the no-LoRA pseudo-character) is the only `_`-prefixed name that
+    # is a real, selectable character; everything else starting with `_` is
+    # scaffolding (`_template`, `_demo_character`) and stays hidden from the UI.
     names = [n for n in store.character_config_list()
-             if n in ("_base", "_demo_character") or not n.startswith("_")]
+             if n == "_base" or not n.startswith("_")]
     return sorted(names)
 
 
