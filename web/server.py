@@ -1597,6 +1597,19 @@ class Handler(BaseHTTPRequestHandler):
                 zf.extractall(C.ROOT)
             except Exception as e:
                 return self._send_json({"ok": False, "err": f"extract failed: {e}"}, 500)
+            # Seed the state DB from the bundle's config.yaml so the character is
+            # live immediately — the runtime reads config from the DB, not the
+            # extracted file, so without this the import wouldn't show up until
+            # someone ran migrate_to_db.py.
+            cfg_path = C.char_dir(char_name) / "config.yaml"
+            try:
+                raw_cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+                if not isinstance(raw_cfg, dict):
+                    raise ValueError("config.yaml did not parse to a mapping")
+                store.character_config_set(char_name, raw_cfg)
+            except Exception as e:
+                return self._send_json({"ok": False, "err":
+                    f"extracted bundle but failed to seed config: {e}"}, 500)
             C.log_event("character_imported", character=char_name, size=n)
             return self._send_json({"ok": True, "character": char_name})
 
@@ -1913,6 +1926,21 @@ class Handler(BaseHTTPRequestHandler):
                            .replace("__DEFAULT_OUTFIT_TAGS__",
                                     "<add default outfit tags here, e.g. white camisole, black shorts>"))
                     f.write_text(txt, encoding="utf-8")
+            # Seed the state DB from the freshly-written config.yaml. The runtime
+            # reads config from the character_config table, not the file, so
+            # without this the new character would be invisible until someone ran
+            # migrate_to_db.py. On failure, roll the scaffold back so a retry
+            # (which refuses if the folder exists) works cleanly.
+            try:
+                raw_cfg = yaml.safe_load(
+                    (target / "config.yaml").read_text(encoding="utf-8")) or {}
+                if not isinstance(raw_cfg, dict):
+                    raise ValueError("config.yaml did not parse to a mapping")
+                store.character_config_set(name, raw_cfg)
+            except Exception as e:
+                shutil.rmtree(target, ignore_errors=True)
+                return self._send_json({"ok": False,
+                    "err": f"scaffolded files but failed to seed config: {e}"}, 500)
             C.log_event("character_created", character=name)
             return self._send_json({"ok": True, "character": name})
 

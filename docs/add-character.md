@@ -86,10 +86,12 @@ Whichever route, **review every caption before training**. Wrong tags = wrong Lo
 
 ## 4. Fill in the character's config
 
-The scaffold wrote `characters/<name>/config.yaml` with placeholders. This
-file is the **seed** — the runtime reads config from the `character_config`
-table in `vrfu.db`, not the file. Open it in any text editor and fill in the
-placeholders:
+Creating the character already seeded its config (template defaults) into the
+`character_config` table in `vrfu.db` — that's what the runtime reads, not the
+file. The **easiest way to fill in your real values** is the **Characters**
+page in the UI: it edits `character_name`, `trigger_word`, `character_tags`,
+`negative_tags`, `character_lora_weight`, `sampler`, and `outfits`, and saves
+straight to the DB. The fields you're setting:
 
 ```yaml
 character_name: My Character          # Pretty display name
@@ -109,12 +111,13 @@ outfits:
 **`character_tags`** gets auto-prepended to every prompt, so it's the LoRA's "always-on" features.
 **`outfits`** are the named outfit bundles you can reference in queue prompts as `{outfit}` (default) or `{outfit:bikini}`. `generate.py` expands these at gen time.
 
-> **Load it into the DB.** A freshly scaffolded character isn't live until its
-> config is in `vrfu.db`. Run once:
-> `ai-toolkit\venv\Scripts\python.exe scripts\migrate_to_db.py` — it imports
-> every `characters/*/config.yaml` (and any legacy state) into the DB
-> (idempotent). After that the character appears in the UI and you can edit its
-> config from the **Characters** page, which writes straight to the DB.
+> **Prefer the form, or re-sync if you hand-edit.** The Characters page writes
+> the DB directly. If you'd rather edit `characters/<name>/config.yaml` in a
+> text editor (e.g. to set a field the form doesn't expose), your changes won't
+> take effect until you re-sync them into the DB:
+> `ai-toolkit\venv\Scripts\python.exe scripts\migrate_to_db.py` (idempotent —
+> imports every `characters/*/config.yaml`). Don't do both at once: editing the
+> file and re-running migrate will overwrite whatever you changed in the form.
 
 ## 5. (Usually skip) Edit `training_config.yaml`
 

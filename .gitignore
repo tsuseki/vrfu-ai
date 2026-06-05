@@ -106,6 +106,10 @@ db.snapshots/
 # Rolling queue backups written by save_queue() on shrink (legacy + DB era).
 queue.yaml.backups/
 
+# Runtime advisory locks (file_lock / character_busy_lock).
+*.lock
+.*.busy.lock
+
 # ─── Character export/import bundles — personal LoRA + data, not shippable ─
 *_bundle.zip
 *_bundle/

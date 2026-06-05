@@ -24,12 +24,15 @@ What's NOT included:
 
 Receiver workflow:
     1. Clone vrfu-ai, run setup.bat, run download_models.bat
-    2. Unzip the bundle into the repo root — files land in the right places
-    3. Open the website, navigate to Characters tab, edit the imported
-       character to set character_tags + outfits if not already filled in
-    4. Click ▶️ Start to verify
+    2. Characters tab -> Import bundle... -> pick the .zip. The server unpacks
+       it AND seeds the config into vrfu.db, so the character is live at once.
+       (Manual unzip into the repo root also works, but then you must run
+       scripts/migrate_to_db.py to seed the DB.)
+    3. Open the character, set character_tags + outfits if not already filled
+       in (the Characters page saves to the DB), then click Start to verify.
 
-This script writes paths repo-relative so it works regardless of where the
+The bundle's config.yaml is generated from the sender's live DB config, and
+all paths are written repo-relative, so it works regardless of where the
 sender or receiver cloned the repo.
 """
 from __future__ import annotations
@@ -40,8 +43,11 @@ import sys
 import zipfile
 from pathlib import Path
 
+import yaml
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _common as C   # noqa: E402
+import store          # noqa: E402
 
 
 BUNDLE_README = """\
@@ -94,8 +100,17 @@ vrfu-ai/
     └── checkpoints/                           (intermediate training steps)
 ```
 
-Then open the website, go to the Characters tab, click {pretty}, verify
-the config, and click ▶️ Start to test generation.
+Then load the config into the state DB (the manual unzip drops files on
+disk, but the app reads config from `vrfu.db`):
+
+```cmd
+ai-toolkit\venv\Scripts\python.exe scripts\migrate_to_db.py
+```
+
+Now open the website, go to the Characters tab, click {pretty}, verify
+the config, and click ▶️ Start to test generation. (The 📥 Import button
+above does this seeding for you — the manual path is the only one that
+needs `migrate_to_db.py`.)
 
 ## Notes from the sender
 
@@ -112,8 +127,8 @@ the config, and click ▶️ Start to test generation.
   short. Edit it through the Characters tab to add identity anchors
   (hair, eyes, ears, distinguishing features).
 - **Generation looks plasticky / 3D** — the LoRA may need an artist tag
-  on every prompt. Check the sender's notes in `config.yaml` (top of
-  file, comment block) for character-specific quirks.
+  on every prompt. See the **Notes from the sender** section above for
+  character-specific quirks.
 
 See <https://github.com/tsuseki/vrfu-ai/blob/main/docs/troubleshooting.md>
 for more.
@@ -133,10 +148,19 @@ def main() -> None:
 
     name = args.character
     char_dir = C.char_dir(name)
-    if not (char_dir / "config.yaml").exists():
-        sys.exit(f"ERROR: no characters/{name}/config.yaml — character not found.")
 
-    # Read enough of config.yaml to write a useful bundle README.
+    # The DB is the source of truth for config — the on-disk config.yaml can be
+    # a stale scaffold seed (the UI saves edits to the DB, not the file). Pull
+    # the live config and ship THAT in the bundle so the receiver gets the
+    # sender's current tags / outfits / weights.
+    db_cfg = store.character_config_get(name)
+    if db_cfg is None:
+        sys.exit(f"ERROR: no config for '{name}' in the state DB. Run "
+                 f"scripts/migrate_to_db.py to seed it, or create the character "
+                 f"through the website first.")
+    config_yaml_text = yaml.safe_dump(db_cfg, sort_keys=False, allow_unicode=True)
+
+    # Resolved view (absolute paths) for the README metadata + LoRA lookup.
     cfg = C.load_character(name)
     pretty = cfg.get("character_name") or name
     trigger = cfg.get("trigger_word") or name
@@ -154,8 +178,9 @@ def main() -> None:
     # Collect files to include — (source absolute path, archive-relative path)
     files: list[tuple[Path, str]] = []
 
-    # Project-side configs
-    files.append((char_dir / "config.yaml",         f"characters/{name}/config.yaml"))
+    # Project-side configs. config.yaml is generated from the DB (above) and
+    # written straight into the zip in the writer block below, so the bundle
+    # always carries the sender's current config rather than a stale file.
     tcfg = char_dir / "training_config.yaml"
     if tcfg.exists():
         files.append((tcfg,                          f"characters/{name}/training_config.yaml"))
@@ -184,7 +209,7 @@ def main() -> None:
 
     total_bytes = sum(p.stat().st_size for p, _ in files)
     print(f"Bundling {pretty} ({name})")
-    print(f"  files: {len(files)}")
+    print(f"  files: {len(files) + 1}  (config.yaml generated from the DB)")
     print(f"  size:  {total_bytes / (1024**3):.2f} GiB" if total_bytes > 1024**3
           else f"  size:  {total_bytes / (1024**2):.1f} MiB")
     print(f"  out:   {out_path}")
@@ -194,6 +219,7 @@ def main() -> None:
         # and STORED is dramatically faster for ~500MB-2GB bundles.
         for src, arc in files:
             z.write(src, arc)
+        z.writestr(f"characters/{name}/config.yaml", config_yaml_text)
         z.writestr("README.md", bundle_readme)
 
     print(f"\nWrote {out_path} ({out_path.stat().st_size / (1024**2):.1f} MiB)")

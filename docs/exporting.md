@@ -62,21 +62,24 @@ When someone sends you a `<name>_bundle.zip`:
 
 1. Make sure your `vrfu-ai/` is set up — `setup.bat` ran, base SDXL
    checkpoint downloaded, website launches.
-2. Unzip the bundle into the **root of your `vrfu-ai/` clone**. Most
-   archive tools have a "Extract here" option — that's what you want.
-   Files merge into your existing `characters/` and `loras/` folders.
-3. Load the bundled `config.yaml` into the state DB — runtime config lives
-   in `vrfu.db`, not the file. Run once:
-   `ai-toolkit\venv\Scripts\python.exe scripts\migrate_to_db.py`
-   (idempotent — it imports every `characters/*/config.yaml` into the DB).
-   Restart the website if it was already running.
-4. Open the website, navigate to the **Characters** tab. The new
-   character now shows up.
-5. Click into it, verify `character_tags`, `trigger_word`, `outfits.default`
-   are filled in. If the sender left `character_tags` minimal, fill them
-   in based on the bundle's auto-generated `README.md` and the training
-   images (if included) — the Characters page saves straight to the DB.
-6. Click **▶️ Start** on the Generation tab to verify everything works.
+2. **Recommended — use the Import button.** In the website, go to the
+   **Characters** tab and click **📥 Import bundle…**, then pick the `.zip`.
+   The server unpacks it into `characters/` + `loras/` **and seeds the config
+   into the DB**, so the character is live the moment it finishes — no extra
+   step.
+3. **Manual fallback** (e.g. you haven't launched the website yet): unzip the
+   bundle into the **root of your `vrfu-ai/` clone** ("Extract here"), then
+   load the config into the DB yourself —
+   `ai-toolkit\venv\Scripts\python.exe scripts\migrate_to_db.py` (idempotent;
+   imports every `characters/*/config.yaml`). Restart the website if it was
+   already running. The manual path needs this because it bypasses the
+   server's importer.
+4. Open the **Characters** tab and click the new character. Verify
+   `character_tags`, `trigger_word`, `outfits.default` are filled in. If the
+   sender left `character_tags` minimal, fill them in from the bundle's
+   `README.md` and the training images (if included) — the Characters page
+   saves straight to the DB.
+5. Click **▶️ Start** on the Generation tab to verify everything works.
 
 ## Working with an agent
 
