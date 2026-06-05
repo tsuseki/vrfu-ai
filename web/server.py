@@ -2023,6 +2023,14 @@ def run() -> None:
     # Queue/done/feedback now live in vrfu.db; the historical per-character
     # YAML-merge bootstrap is no longer needed. Use scripts/migrate_to_db.py
     # for any one-off re-import from legacy files.
+    #
+    # First-run seed: vrfu.db is gitignored, so a fresh clone launches with an
+    # empty DB. Import the shipped character configs (incl. the demo) + their
+    # queues so the app works out of the box. No-op on an established install.
+    seeded = store.seed_from_files_if_empty()
+    if seeded:
+        print(f"  first run: seeded {len(seeded)} character(s) into vrfu.db "
+              f"({', '.join(seeded)})")
 
     srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     print(f"\n  vrfu-ai - local web UI")

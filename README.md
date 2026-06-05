@@ -98,10 +98,11 @@ Then either:
   click ▶️ Start in the website, OR
 - **Train your own** — see [`docs/add-character.md`](docs/add-character.md).
 
-The bundled `_demo_character/` is a worked example you can refer to;
-it's `tsu_chocola`'s real config + 3 SFW reference images, copied
-verbatim so you can see what a working character looks like before
-setting up your own.
+The bundled `_demo_character/` is a worked example — `tsu_chocola`'s real
+config + 3 SFW reference images, copied verbatim — so you can see what a
+working character looks like before setting up your own. It's seeded into
+the database on first launch and appears in the character dropdown; drop the
+`tsu_chocola` LoRA at `loras/tsu_chocola/tsu_chocola.safetensors` to run it.
 
 ## Documentation
 

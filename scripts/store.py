@@ -764,3 +764,56 @@ def character_config_list() -> list[str]:
         "SELECT character FROM character_config ORDER BY character"
     ).fetchall()
     return [r["character"] for r in rows]
+
+
+# ─── First-run seeding ──────────────────────────────────────────────────────
+# Characters that are "real" despite a leading underscore. Mirrors the
+# allow-list in _common.list_characters() so seeding and listing agree —
+# _base is the no-LoRA pseudo-character, _demo_character is the shipped demo.
+_SEED_ALLOW_UNDERSCORE = {"_base", "_demo_character"}
+
+
+def seed_from_files_if_empty() -> list[str]:
+    """First-run bootstrap. vrfu.db is gitignored, so a fresh clone starts
+    with an empty DB even though characters/<name>/config.yaml files ship on
+    disk. If the character_config table is empty, import those configs (and
+    any shipped queue, e.g. the demo's smoke-test prompts) so the app — and
+    the bundled demo character — work out of the box under the DB schema.
+
+    No-op once any config exists, and it never overwrites an existing row, so
+    launching on an established install (or re-running) can't clobber edits
+    or add clutter. Returns the names seeded.
+    """
+    if character_config_list():
+        return []
+    import yaml as _yaml  # local import; store stays import-light otherwise
+    seeded: list[str] = []
+    for cfg_path in sorted(C.CHARACTERS.glob("*/config.yaml")):
+        name = cfg_path.parent.name
+        if name.startswith("_") and name not in _SEED_ALLOW_UNDERSCORE:
+            continue  # scaffolding (e.g. _template) — not a real character
+        try:
+            raw = _yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+        except Exception:
+            continue
+        if not (isinstance(raw, dict) and raw):
+            continue
+        character_config_set(name, raw)
+        seeded.append(name)
+        # Seed any shipped queue for this character (the demo smoke tests),
+        # stamping the owning character on each entry.
+        q_path = cfg_path.parent / "queue.yaml"
+        if not q_path.exists():
+            continue
+        try:
+            entries = _yaml.safe_load(q_path.read_text(encoding="utf-8")) or []
+        except Exception:
+            continue
+        rows = [
+            {**e, "character": e.get("character", name)}
+            for e in entries
+            if isinstance(e, dict) and e.get("label") and e.get("prompt")
+        ]
+        if rows:
+            queue_append(rows)
+    return seeded
