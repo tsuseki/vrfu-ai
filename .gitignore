@@ -94,6 +94,25 @@ web/data/batches.json
 web/server_log.txt
 activity.jsonl
 
+# ─── SQLite state store (the source of truth) — per-user runtime data ────
+# vrfu.db holds every character's queue/done/feedback/activity/config. It's
+# rebuilt locally (migrate_to_db.py from legacy files, or fresh init) — never
+# shipped. -wal / -shm are WAL sidecars. db.snapshots/ are hot backups.
+vrfu.db
+vrfu.db-wal
+vrfu.db-shm
+db.snapshots/
+
+# Rolling queue backups written by save_queue() on shrink (legacy + DB era).
+queue.yaml.backups/
+
+# ─── Character export/import bundles — personal LoRA + data, not shippable ─
+*_bundle.zip
+*_bundle/
+
+# ─── Claude Code worktrees (agent scratch checkouts) ────────────────────
+.claude/worktrees/
+
 # Auto-generated reference docs
 docs/REFERENCE_*.md
 

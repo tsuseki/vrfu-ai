@@ -65,13 +65,18 @@ When someone sends you a `<name>_bundle.zip`:
 2. Unzip the bundle into the **root of your `vrfu-ai/` clone**. Most
    archive tools have a "Extract here" option — that's what you want.
    Files merge into your existing `characters/` and `loras/` folders.
-3. Open the website, navigate to the **Characters** tab. The new
-   character should show up immediately.
-4. Click into it, verify `character_tags`, `trigger_word`, `outfits.default`
+3. Load the bundled `config.yaml` into the state DB — runtime config lives
+   in `vrfu.db`, not the file. Run once:
+   `ai-toolkit\venv\Scripts\python.exe scripts\migrate_to_db.py`
+   (idempotent — it imports every `characters/*/config.yaml` into the DB).
+   Restart the website if it was already running.
+4. Open the website, navigate to the **Characters** tab. The new
+   character now shows up.
+5. Click into it, verify `character_tags`, `trigger_word`, `outfits.default`
    are filled in. If the sender left `character_tags` minimal, fill them
    in based on the bundle's auto-generated `README.md` and the training
-   images (if included).
-5. Click **▶️ Start** on the Generation tab to verify everything works.
+   images (if included) — the Characters page saves straight to the DB.
+6. Click **▶️ Start** on the Generation tab to verify everything works.
 
 ## Working with an agent
 
@@ -87,8 +92,9 @@ If you (receiver) want the agent to import a bundle for you:
 > *"I just got `mari_bundle.zip` from a friend at `~/Downloads/`.
 > Set it up in this repo."*
 
-The agent unzips, places files, opens the website to the Characters
-tab, and walks you through filling in any missing `character_tags`.
+The agent unzips, places files, runs `migrate_to_db.py` to load the
+config into the DB, opens the website to the Characters tab, and walks
+you through filling in any missing `character_tags`.
 
 ## Troubleshooting
 

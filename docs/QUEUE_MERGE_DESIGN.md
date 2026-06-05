@@ -3,6 +3,11 @@
 Captured 2026-05-01 between sessions. **This is a design doc, not a status
 report.** Implementation is the next session's work.
 
+> **Historical.** The unified queue shipped, and state has since moved out of
+> the YAML/JSON files referenced below into a single SQLite DB (`vrfu.db`, via
+> `scripts/store.py`) — see `docs/reference.md` for the current architecture.
+> Kept for design-rationale history.
+
 ## Goal
 
 Run overnight batches that mix multiple characters (e.g. 100 tsu + 100 cocoa

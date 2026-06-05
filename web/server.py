@@ -31,6 +31,8 @@ import yaml
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 import _common as C  # noqa: E402
 import prompt_build  # noqa: E402
+import store  # noqa: E402
+store.init()
 
 PORT      = 8765
 HERE      = Path(__file__).parent
@@ -54,43 +56,22 @@ _yaml_cache: dict      = {}   # character → label→entry
 _yaml_cache_key: dict  = {}   # character → (done.yaml mtime, output dir mtime)
 
 
-# ─── Feedback JSON ──────────────────────────────────────────────────────────
+# ─── Feedback (now stored in SQLite — see scripts/store.py) ────────────────
+# Old shape preserved for backward-compat callers: load_feedback() returns
+# {character -> {stem -> {votes, comment, ...}}}. New code should call
+# store.feedback_set_vote / store.feedback_set_comment / store.feedback_get
+# directly — those are single-row atomic operations and avoid the
+# load-modify-save race that wiped 1352 done.yaml entries in May 2026.
 def load_feedback() -> dict:
-    with _lock:
-        return json.loads(FEEDBACK.read_text(encoding="utf-8"))
+    return store.feedback_all()
 
 
-def save_feedback(data: dict) -> None:
-    with _lock:
-        FEEDBACK.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-
-
-# ─── YAML metadata ──────────────────────────────────────────────────────────
-def _cache_key(character: str) -> tuple:
-    """Cache key combines done.yaml mtime AND output dir mtime so new files invalidate."""
-    done = C.done_file(character)
-    out  = C.output_dir(character)
-    return (
-        done.stat().st_mtime if done.exists() else 0,
-        out.stat().st_mtime  if out.exists()  else 0,
-    )
-
-
+# ─── done metadata (now in SQLite) ──────────────────────────────────────────
 def load_yaml_metadata(character: str) -> dict:
-    """Load done.yaml; auto-reloads on any mtime change."""
-    key = _cache_key(character)
-    if _yaml_cache_key.get(character) == key and character in _yaml_cache:
-        return _yaml_cache[character]
-
-    done = C.done_file(character)
-    raw = []
-    if done.exists():
-        with done.open("r", encoding="utf-8") as f:
-            raw = yaml.safe_load(f) or []
-    by_label = {e["label"]: e for e in raw if isinstance(e, dict) and "label" in e}
-    _yaml_cache[character]      = by_label
-    _yaml_cache_key[character]  = key
-    return by_label
+    """{label -> done row} for a character. Backed by the DB now — the
+    name is kept for backward compat with the dozen call sites that use
+    it. SQLite indexes do the work the YAML mtime cache used to."""
+    return store.done_label_map(character)
 
 
 def parse_artists(prompt: str) -> list[str]:
@@ -345,10 +326,21 @@ def move_image(character: str, stem: str, target: str) -> bool:
     dest = dest_dir / filename
     if dest == src:
         return False
-    if dest.exists():
-        dest.unlink()
     try:
-        shutil.move(str(src), str(dest))
+        # os.replace is atomic on both Windows and POSIX when src and
+        # dest are on the same volume — it cannot leave the system in a
+        # "both files gone" state. Cross-volume falls through to
+        # shutil.move's copy-then-delete (slower but unavoidable). The
+        # previous unlink-then-shutil.move pattern had a window where a
+        # crash would lose the image entirely.
+        try:
+            os.replace(src, dest)
+        except OSError:
+            # Cross-volume or some Windows-locked-file edge case — fall
+            # back to shutil.move. Copy first, then unlink source, so a
+            # crash leaves at least one copy.
+            shutil.copy2(src, dest)
+            os.unlink(src)
         C.log_event("moved", character=character, stem=stem,
                     from_=src_top, to=target)
         return True
@@ -410,8 +402,13 @@ def organize_output(character: str) -> dict:
         if is_positive and not is_negative:
             dest = liked_dir / png.name
             try:
-                if dest.exists(): dest.unlink()
-                shutil.move(str(png), str(dest))
+                # Atomic same-volume swap. Cross-volume → copy-then-unlink
+                # so we never lose the source before the dest is in place.
+                try:
+                    os.replace(png, dest)
+                except OSError:
+                    shutil.copy2(png, dest)
+                    os.unlink(png)
                 moved_liked += 1
             except Exception as e:
                 print(f"organize move-to-liked error: {e}")
@@ -427,16 +424,17 @@ def organize_output(character: str) -> dict:
                     pass
             dest = archive_dest_for(stem) / png.name
             try:
-                if dest.exists(): dest.unlink()
-                shutil.move(str(png), str(dest))
+                try:
+                    os.replace(png, dest)
+                except OSError:
+                    shutil.copy2(png, dest)
+                    os.unlink(png)
                 existing_archive.add(png.name)
                 moved_archive += 1
             except Exception as e:
                 print(f"organize move-to-archive error: {e}")
                 skipped += 1
 
-    # Invalidate cache so subsequent reads see the updated state
-    _yaml_cache_key.pop(character, None)
     C.log_event("organize_clicked", character=character,
                 moved_liked=moved_liked, moved_archive=moved_archive, skipped=skipped)
     return {"moved_liked": moved_liked, "moved_archive": moved_archive, "skipped": skipped}
@@ -598,82 +596,46 @@ def load_queue() -> list[dict]:
     unified. If a UI ever needs a character-filtered view it should filter
     client-side on the response.
     """
-    p = C.UNIFIED_QUEUE
-    if not p.exists():
-        return []
-    try:
-        raw = yaml.safe_load(p.read_text(encoding="utf-8")) or []
-    except yaml.YAMLError as e:
-        raise QueueParseError(str(e), p) from e
-    return [e for e in raw if isinstance(e, dict)]
+    return store.queue_list()
 
 
 # ThreadingHTTPServer means concurrent POSTs land on different threads;
 # rapid /api/queue/duplicate clicks (or two browser tabs) can race two
 # save_queue calls and produce a malformed file. One global lock
 # serialises all queue writes — saves are <10ms so contention is irrelevant.
+# Lock retained for the rare paths that still need cross-callsite serialisation
+# (e.g. shrink-then-grow patterns); the DB itself is atomic per statement.
 _queue_save_lock = threading.Lock()
 
 
-def _backup_queue(p: Path, new_count: int) -> None:
-    """Snapshot the existing queue before overwriting.
-
-    Always overwrites queue.yaml.last.bak (1-step undo). Additionally writes a
-    timestamped backup under queue.yaml.backups/ when the new save would shrink
-    the queue noticeably (≥10 entries lost OR cleared to empty). Prunes to the
-    20 newest timestamped backups. A previous Sonnet run wiped the unified
-    queue (~400 entries) without warning — these backups exist so a wipe is
-    always recoverable.
-    """
-    if not p.exists() or p.stat().st_size == 0:
-        return
-    try:
-        prev = yaml.safe_load(p.read_text(encoding="utf-8")) or []
-        prev_count = len(prev) if isinstance(prev, list) else 0
-    except Exception:
-        prev_count = 0
-    # Cheap 1-step undo — always written.
-    try:
-        shutil.copy2(p, p.with_suffix(p.suffix + ".last.bak"))
-    except Exception:
-        pass
-    # Shrink-trigger snapshot.
-    lost = prev_count - new_count
-    if prev_count > 0 and (lost >= 10 or new_count == 0):
-        backups_dir = p.parent / "queue.yaml.backups"
-        backups_dir.mkdir(exist_ok=True)
-        ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-        try:
-            shutil.copy2(p, backups_dir / f"queue.{ts}.yaml")
-        except Exception:
-            pass
-        snaps = sorted(backups_dir.glob("queue.*.yaml"))
-        for old in snaps[:-20]:
-            try: old.unlink()
-            except Exception: pass
-
-
 def save_queue(entries: list[dict]) -> None:
-    """Atomic + serialised write of the unified queue.
+    """Replace the queue contents with `entries`. Backed by SQLite —
+    runs as an atomic transaction so concurrent /api/queue/* writers
+    can't lose each other's work (the failure mode that prompted the
+    old _backup_queue safety net).
 
-    Concurrency: under _queue_save_lock so two threads can't race on the
-    same .tmp filename and produce a half-written file.
-
-    Atomicity: writes to queue.yaml.tmp, then os.replace() onto the final
-    path. Atomic on Windows + POSIX.
-
-    Safety: snapshots the previous queue first (see _backup_queue).
+    Pre-write snapshot of the previous DB state is taken as a safety
+    net if the new entries count is much smaller than what was there.
     """
-    p = C.UNIFIED_QUEUE
-    p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.with_suffix(p.suffix + ".tmp")
+    new_count = len(entries)
     with _queue_save_lock:
-        _backup_queue(p, len(entries))
-        with tmp.open("w", encoding="utf-8") as f:
-            f.write(QUEUE_HEADER)
-            if entries:
-                yaml.dump(entries, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
-        os.replace(tmp, p)
+        prev_count = store.queue_size()
+        # Shrink-trigger DB snapshot — mirrors the old _backup_queue heuristic.
+        if prev_count > 0 and (prev_count - new_count >= 10 or new_count == 0):
+            try:
+                store.snapshot(label=f"queue-shrink-{prev_count}-to-{new_count}")
+            except Exception as e:
+                print(f"queue snapshot failed (non-fatal): {e}", flush=True)
+        with store.transaction():
+            store.queue_clear()
+            store.queue_append(entries)
+
+
+def load_queue() -> list[dict]:
+    """Return all queued entries, in queue order. Replaces yaml.safe_load
+    of UNIFIED_QUEUE — every old call site of that pattern should use
+    this helper or call store.queue_list() directly."""
+    return store.queue_list()
 
 
 def make_unique_label(base: str, existing: set) -> str:
@@ -751,38 +713,45 @@ def _watch_run(proc: subprocess.Popen, log_path: Path) -> None:
 
 
 def run_start(character: str, order: str = "character") -> dict:
-    """Spawn `python scripts/generate.py --character <name> --order <order>` as a subprocess."""
+    """Spawn `python scripts/generate.py --character <name> --order <order>` as a subprocess.
+
+    Concurrency: the entire check-and-spawn sequence runs under
+    `_run_lock`. Without the lock, two parallel /api/run/start requests
+    (a double-click, or two browser tabs) could both pass the `is None
+    or poll() is None` check and both spawn a generator — which is
+    exactly the scenario that wiped 1352 done.yaml entries in May 2026.
+    """
     global _run_proc
-    if _run_proc is not None and _run_proc.poll() is None:
-        return {"ok": False, "err": "A run is already in progress."}
-    # Mutual exclusion with upscaler + training — they all share the GPU
-    upscale_proc = _tool_procs.get("upscale")
-    if upscale_proc and upscale_proc.poll() is None:
-        return {"ok": False, "err": "Upscaler is running. Stop it first (GPU is shared)."}
-    training_proc = _tool_procs.get("training")
-    if training_proc and training_proc.poll() is None:
-        return {"ok": False, "err": "Training is running. Stop it first (GPU is shared)."}
-
-    logs = C.logs_dir(character)
-    logs.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_path = logs / f"run_{ts}.txt"
-
-    venv_python = VENV_PYTHON
-    if order not in ("character", "original"):
-        order = "character"
-    cmd = [str(venv_python), str(C.SCRIPTS / "generate.py"),
-           "--character", character, "--order", order]
-
-    log_f = log_path.open("w", encoding="utf-8")
-    proc = subprocess.Popen(
-        cmd, stdout=log_f, stderr=subprocess.STDOUT,
-        cwd=str(C.SCRIPTS),
-        creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
-    )
-    _run_proc = proc
-
     with _run_lock:
+        if _run_proc is not None and _run_proc.poll() is None:
+            return {"ok": False, "err": "A run is already in progress."}
+        # Mutual exclusion with upscaler + training — they all share the GPU
+        upscale_proc = _tool_procs.get("upscale")
+        if upscale_proc and upscale_proc.poll() is None:
+            return {"ok": False, "err": "Upscaler is running. Stop it first (GPU is shared)."}
+        training_proc = _tool_procs.get("training")
+        if training_proc and training_proc.poll() is None:
+            return {"ok": False, "err": "Training is running. Stop it first (GPU is shared)."}
+
+        logs = C.logs_dir(character)
+        logs.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_path = logs / f"run_{ts}.txt"
+
+        venv_python = VENV_PYTHON
+        if order not in ("character", "original"):
+            order = "character"
+        cmd = [str(venv_python), str(C.SCRIPTS / "generate.py"),
+               "--character", character, "--order", order]
+
+        log_f = log_path.open("w", encoding="utf-8")
+        proc = subprocess.Popen(
+            cmd, stdout=log_f, stderr=subprocess.STDOUT,
+            cwd=str(C.SCRIPTS),
+            creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
+        )
+        _run_proc = proc
+
         _run_state.update({
             "state":         "running",
             "character":     character,
@@ -1172,8 +1141,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json({"err": str(e)}, 500)
 
         if path == "/api/refresh":
-            _yaml_cache.clear()
-            _yaml_cache_key.clear()
+            # DB is the source of truth now; no in-process cache to flush.
             return self._send_json({"ok": True})
 
         # ── Images / artists / batches / stats ──────────────────────────────
@@ -1255,14 +1223,16 @@ class Handler(BaseHTTPRequestHandler):
                 entries = [(c, s, info, fb) for (c, s, info, fb) in entries
                            if all(t in hay(s, info, fb) for t in terms)]
 
-            # Newest first. Across characters, `id` is per-character (each
-            # has its own counter), so it doesn't sort meaningfully across
-            # characters. `generated_at` is a global "YYYY-MM-DD HH:MM"
-            # timestamp that sorts lexicographically — primary key. Fall
-            # back to id then filename for entries missing a timestamp
-            # (legacy / imported).
+            # Newest first. For non-output views the user thinks in "when did I
+            # vote/sort this", so prefer feedback's `first_voted` — that's
+            # robust when done.yaml metadata is missing (legacy / imported /
+            # data loss). Fall back to `generated_at`, then id, then filename.
+            # `generated_at` is "YYYY-MM-DD HH:MM" and `first_voted` is
+            # ISO "YYYY-MM-DDTHH:MM:SS"; both sort correctly lexicographically.
+            use_voted_first = view in ("liked", "bookmarks", "archive")
             entries.sort(
                 key=lambda t: (
+                    (t[3].get("first_voted") or "") if use_voted_first else "",
                     t[2].get("generated_at") or "",
                     t[2].get("id") or 0,
                     t[2].get("filename") or "",
@@ -1323,11 +1293,9 @@ class Handler(BaseHTTPRequestHandler):
             # for the Characters page. Read-only for now — no editing.
             chars = []
             for name in C.list_characters():
-                cfg_path = C.char_dir(name) / "config.yaml"
-                try:
-                    cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
-                except Exception as e:
-                    chars.append({"name": name, "error": str(e)})
+                cfg = store.character_config_get(name)
+                if cfg is None:
+                    chars.append({"name": name, "error": "no config in DB"})
                     continue
                 # Project the fields the UI cares about (skip secrets-ish or
                 # noisy keys). Keep paths as strings for JSON.
@@ -1367,8 +1335,7 @@ class Handler(BaseHTTPRequestHandler):
             user_prompt = qs.get("prompt", [""])[0] or ""
             user_negative = qs.get("negative", [""])[0] or ""
             multi_girl = qs.get("multi_girl", ["0"])[0] in ("1", "true", "True")
-            cfg_path = C.char_dir(character) / "config.yaml"
-            cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) if cfg_path.exists() else {}
+            cfg = store.character_config_get(character) or {}
             entry = {"prompt": user_prompt, "negative": user_negative, "multi_girl": multi_girl}
             try:
                 full_prompt, full_negative = prompt_build.build_prompt(entry, cfg)
@@ -1407,14 +1374,18 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json({"queue": load_queue()})
 
         if path == "/api/queue/export":
-            # Export the unified queue. Filename is just queue.yaml since
-            # entries route per-character via the `character:` field.
-            p = C.UNIFIED_QUEUE
+            # Export the unified queue as YAML (assembled from the DB).
+            entries = store.queue_list()
+            # Strip queue_pos; users want the same shape they'd import.
+            for e in entries:
+                e.pop("queue_pos", None)
+            text = yaml.dump(entries, allow_unicode=True, sort_keys=False,
+                             default_flow_style=False) if entries else "# empty\n"
             self.send_response(200)
             self.send_header("Content-Type", "text/yaml; charset=utf-8")
             self.send_header("Content-Disposition", 'attachment; filename="queue.yaml"')
             self.end_headers()
-            self.wfile.write(p.read_bytes() if p.exists() else b"# empty\n")
+            self.wfile.write(text.encode("utf-8"))
             return
 
         # ── Run controls ────────────────────────────────────────────────────
@@ -1644,21 +1615,16 @@ class Handler(BaseHTTPRequestHandler):
             ):
                 return self._send_json({"ok": False, "err": "bad request"}, 400)
 
-            data = load_feedback()
-            entry = data.setdefault(character, {}).setdefault(stem, {})
-            entry.setdefault("votes", {})
-            entry["votes"][vote_type] = value
-            now = datetime.now().isoformat(timespec="seconds")
-            entry.setdefault("first_voted", now)
-            entry["last_updated"] = now
-            save_feedback(data)
+            # Atomic single-row upsert; concurrent voters can't lose each
+            # other's writes the way load+mutate+save did.
+            updated = store.feedback_set_vote(character, stem, vote_type, value)
             C.log_event("voted", character=character, stem=stem,
                         vote_type=vote_type, value=value)
 
             moved = None
             # Bookmark votes never trigger movement — they're just a flag.
             if view in ("output", "liked", "archive") and vote_type != "bookmark":
-                all_votes   = entry["votes"]
+                all_votes   = updated["votes"]
                 is_positive = any(all_votes.get(k) for k in POSITIVE_KEYS)
                 # anatomy_issue is a hard negative — sit it next to dislike for
                 # routing. Marking an image with bad anatomy means "I don't
@@ -1679,11 +1645,7 @@ class Handler(BaseHTTPRequestHandler):
             comment   = body.get("comment", "")
             if not character or not stem:
                 return self._send_json({"ok": False, "err": "bad request"}, 400)
-            data  = load_feedback()
-            entry = data.setdefault(character, {}).setdefault(stem, {})
-            entry["comment"]      = comment
-            entry["last_updated"] = datetime.now().isoformat(timespec="seconds")
-            save_feedback(data)
+            store.feedback_set_comment(character, stem, comment)
             if comment.strip():
                 C.log_event("comment", character=character, stem=stem)
             return self._send_json({"ok": True})
@@ -1830,11 +1792,9 @@ class Handler(BaseHTTPRequestHandler):
             fields = body.get("fields", {}) or {}
             if not name or name not in C.list_characters():
                 return self._send_json({"ok": False, "err": f"unknown character: {name}"}, 400)
-            cfg_path = C.char_dir(name) / "config.yaml"
-            try:
-                cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
-            except Exception as e:
-                return self._send_json({"ok": False, "err": f"config.yaml unreadable: {e}"}, 500)
+            cfg = store.character_config_get(name)
+            if cfg is None:
+                return self._send_json({"ok": False, "err": f"no config for {name}"}, 500)
             # Allowed editable fields
             ALLOWED = {"character_name", "trigger_word", "character_tags",
                        "negative_tags", "character_lora_weight", "sampler", "outfits"}
@@ -1851,12 +1811,8 @@ class Handler(BaseHTTPRequestHandler):
                         pass
                 else:
                     cfg[k] = v
-            # Atomic save: tmp + replace under the queue lock
-            tmp = cfg_path.with_suffix(cfg_path.suffix + ".tmp")
-            with _queue_save_lock:  # reuse the lock — config edits are rare
-                with tmp.open("w", encoding="utf-8") as f:
-                    yaml.dump(cfg, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
-                os.replace(tmp, cfg_path)
+            # Single-row atomic upsert — no manual file lock needed.
+            store.character_config_set(name, cfg)
             C.log_event("character_config_saved", character=name,
                         fields=sorted(fields.keys()))
             return self._send_json({"ok": True})
@@ -2036,17 +1992,9 @@ def run() -> None:
             sys.stderr.reconfigure(encoding="utf-8")
         except Exception:
             pass
-    # One-time migration: if there's no project-level queue.yaml but per-
-    # character queue.yaml files exist, merge them. Idempotent — safe even if
-    # the unified file already exists (function checks first thing).
-    try:
-        before = C.UNIFIED_QUEUE.exists()
-        C.migrate_per_character_queues_if_needed()
-        if not before and C.UNIFIED_QUEUE.exists():
-            print(f"  ✨ Migrated per-character queues into {C.UNIFIED_QUEUE.name}")
-            print(f"     (old per-character files renamed to *.legacy_per_char)\n")
-    except Exception as e:
-        print(f"  ⚠️ Queue migration failed: {e}\n")
+    # Queue/done/feedback now live in vrfu.db; the historical per-character
+    # YAML-merge bootstrap is no longer needed. Use scripts/migrate_to_db.py
+    # for any one-off re-import from legacy files.
 
     srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     print(f"\n  vrfu-ai - local web UI")

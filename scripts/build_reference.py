@@ -76,19 +76,14 @@ def main() -> None:
     args = parser.parse_args()
 
     char_name = C.resolve_default_character(args.character)
-    feedback_path = C.WEB / "data" / "feedback.json"
-    done_path     = C.done_file(char_name)
     out_md        = C.DOCS / f"REFERENCE_{char_name}.md"
     out_txt       = C.char_dir(char_name) / "liked_images.txt"
 
-    feedback = {}
-    if feedback_path.exists():
-        feedback = json.loads(feedback_path.read_text(encoding="utf-8")).get(char_name, {})
-
-    done = []
-    if done_path.exists():
-        done = [e for e in (yaml.safe_load(done_path.read_text(encoding="utf-8")) or [])
-                if isinstance(e, dict)]
+    # All state lives in vrfu.db now.
+    import store
+    store.init()
+    feedback = store.feedback_all(char_name).get(char_name, {})
+    done = store.done_list(char_name)
     done_by_label = {e["label"]: e for e in done if "label" in e}
 
     char_lower = char_name.replace("_", " ").lower()

@@ -74,6 +74,8 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).parent))
 import _common as C  # noqa: E402
+import store  # noqa: E402
+store.init()
 
 # ── Hires-fix parameters ───────────────────────────────────────────────────
 DENOISE = 0.40   # 0.30-0.45 sweet spot — preserves composition, adds detail
@@ -117,26 +119,22 @@ def check_vram() -> None:
 
 
 def load_done_index(character: str) -> dict[str, dict]:
-    """Build label -> done.yaml entry map for prompt lookup."""
-    p = C.done_file(character)
-    if not p.exists():
-        return {}
-    raw = yaml.safe_load(p.read_text(encoding="utf-8")) or []
-    return {e["label"]: e for e in raw if isinstance(e, dict) and "label" in e}
+    """Build {label -> done row} for prompt lookup. DB-backed."""
+    return store.done_label_map(character)
 
 
 def append_upscale_log(character: str, record: dict) -> None:
-    log_path = C.upscaled_log_file(character)
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    existing = []
-    if log_path.exists() and log_path.stat().st_size > 0:
-        existing = yaml.safe_load(log_path.read_text(encoding="utf-8")) or []
-    if not isinstance(existing, list):
-        existing = []
-    existing.append(record)
-    with log_path.open("w", encoding="utf-8") as f:
-        f.write("# UPSCALED IMAGES — auto-managed log\n")
-        yaml.dump(existing, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
+    """Insert one upscale record. Atomic — concurrent upscalers can't
+    lose each other's writes the way the old YAML rewrite did."""
+    stem = record.pop("stem", None) or record.get("filename", "").replace(".png", "")
+    store.upscale_log_insert(
+        character=character,
+        stem=stem,
+        scale=record.pop("scale", None),
+        model=record.pop("model", None),
+        duration_s=record.pop("duration_s", None),
+        **record,
+    )
 
 
 def build_pipe(cfg: dict):
@@ -212,10 +210,52 @@ def build_pipe(cfg: dict):
 
 
 def upscale_one(pipe, compel, png: Path, out_path: Path, entry: dict,
-                scale: float = 2.0) -> tuple[float, tuple[int, int]]:
-    """Run hires-fix on a single PNG. Returns (duration_s, (out_w, out_h))."""
-    prompt   = entry.get("prompt", "")
-    negative = entry.get("negative", "")
+                scale: float = 2.0,
+                fallback_cfg: dict | None = None) -> tuple[float, tuple[int, int]]:
+    """Run hires-fix on a single PNG. Returns (duration_s, (out_w, out_h)).
+
+    Empty-prompt protection: if `entry.prompt` is missing or empty (legacy
+    images with lost metadata, e.g. from the May 2026 done.yaml loss), we
+    synthesize a fallback prompt from the character's `character_tags`
+    plus a quality stack. Without this, SDXL img2img with no prompt has
+    nothing anchoring colour/identity and visibly drifts — eyes go
+    orange, skin shifts, etc. The fallback is approximate but safe."""
+    prompt   = entry.get("prompt", "") or ""
+    negative = entry.get("negative", "") or ""
+
+    # Recovered-prompt warning. Entries with recovered_via=fuzzy:<base>
+    # had their prompt fuzzy-matched from a similar label (e.g. -fe / -dup
+    # variants whose exact source was lost in May 2026). The base prompt
+    # is usually CLOSE but missing the suffix-specific tags — running it
+    # through img2img can color-drift the suffix's distinctive features
+    # (orange eyes when -fe "fire eye" tags are missing, for example).
+    # We still proceed so batch jobs don't grind to a halt, but you'll
+    # want to eyeball these results.
+    rec_via = entry.get("recovered_via")
+    rec_from = entry.get("recovered_from")
+    if rec_via:
+        print(f"  ⚠ {png.name}: prompt fuzzy-recovered ({rec_via}) — "
+              f"may color-drift on upscale, check the result",
+              flush=True)
+    elif rec_from == "stub":
+        print(f"  ⚠ {png.name}: prompt is a recovery stub (was wiped in "
+              f"May 2026 incident) — using character_tags fallback",
+              flush=True)
+
+    if not prompt.strip() and fallback_cfg:
+        char_tags = fallback_cfg.get("character_tags", "") or ""
+        trigger   = fallback_cfg.get("trigger_word", "") or ""
+        neg_tags  = fallback_cfg.get("negative_tags", "") or ""
+        prompt = ", ".join(p for p in (
+            "masterpiece, best quality, amazing quality, very aesthetic, "
+            "newest, absurdres, anime coloring, cel shading",
+            trigger,
+            char_tags,
+        ) if p).strip(", ")
+        if not negative.strip():
+            negative = neg_tags
+        print(f"  ⚠ empty-prompt fallback for {png.name} (using character_tags)",
+              flush=True)
     try:
         seed = int(entry.get("seed")) if entry.get("seed") is not None else 0
     except (TypeError, ValueError):
@@ -259,6 +299,14 @@ def upscale_one(pipe, compel, png: Path, out_path: Path, entry: dict,
 
 
 def main() -> None:
+    # Project-wide mutual exclusion: only ONE upscale.py at a time.
+    # Two parallel upscalers raced on upscaled.yaml's read-modify-write
+    # before the SQLite migration; the lock also prevents GPU thrash.
+    with C.tool_busy_lock("upscale"):
+        _main_locked()
+
+
+def _main_locked() -> None:
     parser = argparse.ArgumentParser(description="SDXL hires-fix upscaler.")
     parser.add_argument("--character", help="Character name (folder under characters/), or 'all' to walk every character sequentially")
     parser.add_argument("--stems", help="Comma-separated list of stems to process; default = all of liked/")
@@ -354,7 +402,8 @@ def _upscale_one_character(char_name: str, args) -> None:
 
         try:
             print(f"  [{i}/{total}] {stem} -> {out_path.name}")
-            duration, (tw, th) = upscale_one(pipe, compel, png, out_path, entry, scale)
+            duration, (tw, th) = upscale_one(pipe, compel, png, out_path,
+                                             entry, scale, fallback_cfg=cfg)
 
             if move_after:
                 shutil.move(str(png), str(archive / png.name))

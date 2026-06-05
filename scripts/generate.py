@@ -2,9 +2,10 @@
 vrfu-ai Generation Script (SDXL / Illustrious + Character LoRAs)
 ================================================================
 
-Reads a character's config.yaml + queue.yaml, generates images one by one
-into the character's output/ folder, and moves completed entries from
-queue.yaml → archive/done.yaml.
+Reads a character's config and the unified queue from the state DB
+(scripts/store.py → vrfu.db), generates images one by one into the
+character's output/ folder, and moves each completed entry from the
+`queue` table to the `done` table in one atomic transaction.
 
 Usage:
     python generate.py --character tsu_chocola
@@ -24,6 +25,7 @@ SIGTERM is handled gracefully — the current image finishes, then the script ex
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import random
 import re
@@ -96,6 +98,8 @@ from PIL import Image
 # Bring in shared paths + activity logger from this same scripts/ folder
 sys.path.insert(0, str(Path(__file__).parent))
 import _common as C  # noqa: E402
+import store  # noqa: E402
+store.init()
 
 # ── VRAM threshold ─────────────────────────────────────────────────────────
 MIN_FREE_VRAM_MIB = 8000
@@ -173,6 +177,40 @@ def save_yaml(path: Path, data, header: str = "") -> None:
             f.write(header + "\n")
         if data:
             yaml.dump(data, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
+
+
+def save_done_merged(path: Path, in_memory: list, header: str = "") -> None:
+    """Race-safe rewrite of done.yaml. Re-reads the on-disk file before
+    writing and merges by id with the in-memory list — protects against
+    concurrent generate.py runs on the same character (each loaded an
+    older snapshot at start; without merging, the last to save would
+    truncate everything the other had appended). For id collisions the
+    in-memory entry wins (it's the freshly-completed one)."""
+    disk = load_yaml(path)
+    by_id: dict = {}
+    for e in disk:
+        if isinstance(e, dict) and "id" in e:
+            try:
+                by_id[int(e["id"])] = e
+            except (TypeError, ValueError):
+                pass
+    for e in in_memory:
+        if isinstance(e, dict) and "id" in e:
+            try:
+                by_id[int(e["id"])] = e
+            except (TypeError, ValueError):
+                pass
+    save_yaml(path, sorted(by_id.values(), key=lambda e: int(e["id"])), header=header)
+
+
+def append_done_log(done_path: Path, entry: dict) -> None:
+    """Append-only recovery log. Every completed entry is written as one
+    JSON line to done.jsonl alongside done.yaml. If done.yaml is ever
+    clobbered again, this file is the source of truth."""
+    log_path = done_path.with_name(done_path.stem + ".jsonl")
+    log_path.parent.mkdir(exist_ok=True, parents=True)
+    with open(log_path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
 def get_scheduler(pipe, name: str):
@@ -518,13 +556,12 @@ class CharContext:
         self.cfg         = C.load_character(name)
         self.char_dir    = C.char_dir(name)
         self.output_dir  = C.output_dir(name)
-        self.done_path   = C.done_file(name)
         self.input_dir   = self.char_dir / "input"
-        self.last_id     = self.char_dir / "last_id.txt"
-        self.done        = load_yaml(self.done_path)
-        done_max = max((int(e["id"]) for e in self.done if isinstance(e, dict) and "id" in e), default=0)
-        file_max = int(self.last_id.read_text().strip()) if self.last_id.exists() else 0
-        self.next_id     = max(done_max, file_max) + 1
+        # next_id is computed transactionally per generation now (see
+        # store.character_state_next_id) so concurrent generators can't
+        # collide on the same id. Pre-fetch the starting value for the
+        # progress banner — actual ids are reserved at write-time.
+        self.next_id     = store.character_state_get(name)["last_id"] + 1
 
 
 def entry_character(entry: dict, default: str) -> str:
@@ -555,6 +592,16 @@ def pick_next_entry(queue: list[dict], current_char: str | None,
 # Main
 # ───────────────────────────────────────────────────────────────────────────
 def main() -> None:
+    # Project-wide mutual exclusion: only ONE generate.py at a time. Two
+    # parallel generators share a GPU (so they can't both run productively
+    # anyway) and used to race on done.yaml writes (1352-entry wipe in
+    # May 2026). The lock file at <ROOT>/.generate.busy.lock is PID-aware
+    # so a crashed prior holder is reclaimed automatically.
+    with C.tool_busy_lock("generate"):
+        _main_locked()
+
+
+def _main_locked() -> None:
     parser = argparse.ArgumentParser(description="Generate images from a character's queue.")
     parser.add_argument("--character", help="Character name (folder under characters/)")
     parser.add_argument("--dry", action="store_true", help="Preview queue without generating")
@@ -569,15 +616,12 @@ def main() -> None:
     # well-formed queue has its own character set. Kept for compat with old
     # entries that came from per-character queues before migration.
     run_target = C.resolve_default_character(args.character)
-    # Unified queue lives at the project root, not per-character.
-    C.migrate_per_character_queues_if_needed()
-    queue_path = C.UNIFIED_QUEUE
 
     # Load the queue first so all-character mode can pick a real character
     # to bootstrap the pipeline with — "all" is a meta-target, not a folder.
-    queue = [e for e in load_yaml(queue_path) if isinstance(e, dict)]
+    queue = store.queue_list()
     if not queue:
-        print("Queue is empty. Add prompts to queue.yaml and run again.")
+        print("Queue is empty. Add prompts via /api/queue/import and run again.")
         sys.exit(0)
 
     # In all-character mode, bootstrap with the first queue entry's character
@@ -664,9 +708,9 @@ def main() -> None:
     completed = 0
 
     while not _stop_requested:
-        # ALWAYS re-read the queue file: takes top entry freshly each iteration,
+        # ALWAYS re-read the queue: takes top entry freshly each iteration,
         # so reordering / new-prepends / deletions take effect immediately.
-        queue_now = [e for e in load_yaml(queue_path) if isinstance(e, dict)]
+        queue_now = store.queue_list()
         if not queue_now:
             print("[queue empty — done]", flush=True)
             break
@@ -680,16 +724,12 @@ def main() -> None:
         try:
             ctx = get_ctx(target_char)
         except (SystemExit, FileNotFoundError, ValueError) as e:
-            # Skip when the character can't be loaded — e.g. config.yaml is
-            # missing (FileNotFoundError from _common.load_character), the
-            # config is malformed (ValueError), or older code-paths sys.exit'd.
-            # The entry gets shuffled to the back of the queue so the run
-            # continues with the next-character's entries instead of dying.
+            # Character can't be loaded (missing config etc.). Move the
+            # entry to the back of the queue so other characters proceed.
             print(f"  ERROR resolving character '{target_char}': {e}")
-            rest = [x for x in load_yaml(queue_path)
-                    if isinstance(x, dict) and x.get("label") != entry["label"]]
-            rest.append(entry)
-            save_yaml(queue_path, rest, header=QUEUE_HEADER)
+            store.queue_delete_by_labels(entry.get("character", target_char),
+                                         [entry["label"]])
+            store.queue_append([entry])
             continue
 
         if target_char != current_lora_char:
@@ -697,34 +737,34 @@ def main() -> None:
             load_character_lora(pipe, ctx.cfg, prev_char=current_lora_char)
             current_lora_char = target_char
 
+        # Reserve the next id BEFORE generating, atomically across processes.
+        # If two generate.py runs race, each gets a distinct id — no filename
+        # collisions, no done-row overwrites.
+        reserved_id = store.character_state_next_id(target_char)
+        ctx.next_id = reserved_id
+
         try:
-            entry["id"] = ctx.next_id
+            entry["id"] = reserved_id
             output_path, duration, full_prompt, full_negative = generate_image(
-                pipe, img2img_pipe, compel, entry, ctx.next_id, ctx.cfg, ctx.output_dir, ctx.input_dir,
+                pipe, img2img_pipe, compel, entry, reserved_id, ctx.cfg, ctx.output_dir, ctx.input_dir,
             )
-            # Mutate ONLY after success — done.yaml gets the actual sent prompt.
+            # Mutate ONLY after success — DB row gets the actual sent prompt.
             entry["prompt"]       = full_prompt
             entry["negative"]     = full_negative
-            entry["output"]       = str(output_path.relative_to(ctx.char_dir))
+            entry["output_path"]  = str(output_path.relative_to(ctx.char_dir))
             entry["generated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
-            ctx.done.append(entry)
-            ctx.last_id.write_text(str(entry["id"]))
+            entry["character"]    = target_char
 
-            # Remove the entry we just completed (by label, in case the user reordered
-            # or deleted it while we were processing — this is the safe key).
-            remaining = [
-                e for e in load_yaml(queue_path)
-                if isinstance(e, dict) and e.get("label") != entry["label"]
-            ]
-            save_yaml(queue_path, remaining, header=QUEUE_HEADER)
-            save_yaml(ctx.done_path,
-                      sorted(ctx.done, key=lambda e: int(e.get("id", 0))),
-                      header=DONE_HEADER)
+            # Single transaction: insert done row + remove from queue.
+            with store.transaction():
+                store.done_upsert(entry)
+                store.queue_delete_by_labels(
+                    entry.get("character", target_char), [entry["label"]],
+                )
 
             completed += 1
-            # Total = how many we've done + how many remain. May grow if user adds.
-            total = max(total, completed + len(remaining))
-            # PROGRESS includes target character so the run banner can update.
+            remaining = store.queue_size()
+            total = max(total, completed + remaining)
             print(f"PROGRESS: {completed}/{total} label={entry['label']} char={target_char} seed={entry.get('seed')} dur={duration:.1f}",
                   flush=True)
             C.log_event("generated",
@@ -734,19 +774,17 @@ def main() -> None:
                         width=entry.get("width"),
                         height=entry.get("height"),
                         duration_s=round(duration, 1))
-            ctx.next_id += 1
+            ctx.next_id = reserved_id + 1
 
         except Exception as e:
             print(f"  ERROR on [{entry.get('id')}] {entry.get('label')}: {e}")
             print("  Skipping and continuing...\n")
-            # Move the failed entry to the end so we don't infinite-loop on it
+            # Push the failed entry to the back so we don't infinite-loop on it.
             try:
-                rest = [
-                    e for e in load_yaml(queue_path)
-                    if isinstance(e, dict) and e.get("label") != entry["label"]
-                ]
-                rest.append(entry)
-                save_yaml(queue_path, rest, header=QUEUE_HEADER)
+                store.queue_delete_by_labels(
+                    entry.get("character", target_char), [entry["label"]],
+                )
+                store.queue_append([entry])
             except Exception:
                 pass
 

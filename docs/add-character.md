@@ -84,9 +84,12 @@ red toenails, long hair, side braid, full body, standing, facing viewer, blush
 
 Whichever route, **review every caption before training**. Wrong tags = wrong LoRA.
 
-## 4. Edit `characters/<name>/config.yaml`
+## 4. Fill in the character's config
 
-Open the file in any text editor. Fill in the placeholders the template left for you:
+The scaffold wrote `characters/<name>/config.yaml` with placeholders. This
+file is the **seed** — the runtime reads config from the `character_config`
+table in `vrfu.db`, not the file. Open it in any text editor and fill in the
+placeholders:
 
 ```yaml
 character_name: My Character          # Pretty display name
@@ -106,6 +109,13 @@ outfits:
 **`character_tags`** gets auto-prepended to every prompt, so it's the LoRA's "always-on" features.
 **`outfits`** are the named outfit bundles you can reference in queue prompts as `{outfit}` (default) or `{outfit:bikini}`. `generate.py` expands these at gen time.
 
+> **Load it into the DB.** A freshly scaffolded character isn't live until its
+> config is in `vrfu.db`. Run once:
+> `ai-toolkit\venv\Scripts\python.exe scripts\migrate_to_db.py` — it imports
+> every `characters/*/config.yaml` (and any legacy state) into the DB
+> (idempotent). After that the character appears in the UI and you can edit its
+> config from the **Characters** page, which writes straight to the DB.
+
 ## 5. (Usually skip) Edit `training_config.yaml`
 
 The template's defaults (rank 32, 2000 steps, lr 1e-4) work for most characters. You only need to touch this if:
@@ -124,7 +134,7 @@ In the website header, switch to your new character in the dropdown if it isn't 
 
 ## 7. Smoke-test prompts
 
-Before writing 100 prompts, do 3–5 test prompts to verify the LoRA learned what you wanted. Add to `queue.yaml`:
+Before writing 100 prompts, do 3–5 test prompts to verify the LoRA learned what you wanted. Add them through the **Add Prompt** modal in the UI (or `POST /api/queue/import`) — the queue lives in `vrfu.db`, so don't hand-edit a file. The entries look like:
 
 ```yaml
 - label: smoke-portrait
@@ -162,9 +172,8 @@ The standard daily loop:
 
 ```
 characters/<name>/
-├── config.yaml             ← you edit this
+├── config.yaml             ← seed for the DB config (edit, then migrate_to_db.py)
 ├── training_config.yaml    ← rarely edit
-├── queue.yaml              ← grows as you add prompts (gitignored)
 ├── training/               ← drop training images + captions here
 ├── output/                 (auto, generated images)
 ├── archive/                (auto, post-Organize rejects)
@@ -180,4 +189,4 @@ loras/<name>/archived_<date>/         ← prior versions (auto-archived on retra
 
 - The dropdown and stats are per-character; everything is isolated except the base SDXL checkpoint and ai-toolkit (one install shared across all characters)
 - LoRAs are independent — training one doesn't affect others
-- `feedback.json` and `activity.jsonl` are global but tag every entry with `character`
+- State (queue, done, votes, activity) is global — one `vrfu.db` — but every row carries a `character` field, so characters stay isolated

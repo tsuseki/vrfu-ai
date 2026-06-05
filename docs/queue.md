@@ -12,28 +12,31 @@ covers only the queue-mechanics layer.
 
 ## 1. Where the queue lives
 
-- **Unified queue file:** `queue.yaml` at the repo root. One queue, every
-  character. Each entry has a `character` field naming which LoRA to load.
-- **Per-character `characters/<name>/queue.yaml` are legacy** — ignore them.
-- **The running web server is the orchestrator.** It reads/writes
-  `queue.yaml` through `web/server.py`'s `save_queue()`, which calls
-  `_backup_queue()` to keep `queue.yaml.last.bak` and timestamped snapshots
-  in `queue.yaml.backups/`.
+- **The `queue` table in `vrfu.db`** (the SQLite store at the repo root) is
+  the one unified queue — every character, one table. Each row has a
+  `character` field naming which LoRA to load.
+- The old `queue.yaml` (root and per-character) are **legacy migration
+  stubs** — ignore them; nothing reads them at runtime.
+- **The running web server is the orchestrator.** It reads/writes the queue
+  through `web/server.py`'s `save_queue()` → `scripts/store.py` (atomic,
+  WAL, multi-process safe). `save_queue()` still snapshots the DB to
+  `db.snapshots/` on a large shrink, as a safety net.
 
-## 2. Hard rule: do not Edit/Write `queue.yaml` directly
+## 2. Hard rule: do not touch `vrfu.db` directly
 
-A prior Sonnet sub-agent on an unrelated task wiped ~400 unfinished entries
-by overwriting the file. **Always go through the API** so `_backup_queue()`
-runs. Two endpoints cover everything:
+A prior Sonnet sub-agent wiped ~400 unfinished entries by overwriting the
+old queue file, and a generator race truncated 1,352 `done` rows — those
+incidents are why state moved into SQLite. **Always go through the API**
+(or, if you must script outside the server, import `scripts/store.py` and
+call its functions — never open the `.db`). Four endpoints cover everything:
 
-- `POST /api/queue/import` — bulk add. Body: `{"character": "...", "yaml": "<yaml-list-text>"}`. Appends to the end of the queue.
+- `POST /api/queue/import` — bulk add. Body: `{"character": "...", "yaml": "<yaml-list-text>"}`. Appends to the end of the queue. Each entry in the YAML **must carry its own `character` field** — the endpoint does not stamp it from the body.
 - `POST /api/queue/update` — modify one entry. Body: `{"character": "...", "label": "...", "fields": {...}}`.
 - `POST /api/queue/reorder` — re-sort. Body: `{"character": "...", "labels": [<full-ordered-label-list>]}`. Missing labels get appended at the end.
 - `POST /api/queue/delete` — remove. Body: `{"character": "...", "labels": [...]}`.
 
-The **only** legitimate reason to write `queue.yaml` directly is when the
-server is down and the user explicitly approved the workaround. In that
-case, copy `queue.yaml` to `queue.yaml.last.bak` first by hand.
+If the server is down, start it (`launch_website.bat`) rather than editing
+state by hand — there is no longer a text file to safely patch.
 
 ## 3. Standard recipe — bulk add via Python
 
@@ -51,7 +54,7 @@ QP = ("masterpiece, best quality, amazing quality, very aesthetic, newest, "
 QS = "very aesthetic, absurdres"
 
 # Build the entry list. Don't include character_tags here — they're
-# prepended at generation time from characters/<name>/config.yaml.
+# prepended at generation time from the character's config (in vrfu.db).
 entries = []
 for i, scenario in enumerate(SCENARIOS, start=1):
     prompt = ", ".join([
@@ -108,8 +111,8 @@ ones after, and POST `/api/queue/reorder`.
 **Resolution constraint:** stick to **1024×1024**, **1216×832** (landscape),
 or **832×1216** (portrait). Off-list ratios degrade the model.
 
-**`character` field** picks the LoRA. The runner looks up
-`characters/<character>/config.yaml`, reads `character_tags` and
+**`character` field** picks the LoRA. The runner looks up the character's
+config (the `character_config` row in `vrfu.db`), reads `character_tags` and
 `negative_tags`, and prepends/merges them with the entry's prompt at
 generation time. **Do not repeat `character_tags` in your prompt** — that
 just dilutes the leading tokens.
@@ -191,8 +194,9 @@ correct your reading before you queue 50 entries.
 
 ## 7. Per-character context to load before writing prompts
 
-Always read `characters/<name>/config.yaml` before queueing for a
-character. Important fields:
+Always read the character's config before queueing for a character —
+`GET /api/character-info?character=<name>` (or the Characters page in the
+UI) returns it from the DB. Important fields:
 
 - **`character_tags`** — auto-prepended; do not repeat.
 - **`negative_tags`** — auto-merged into negatives; usually safe to leave alone.
@@ -202,10 +206,10 @@ character. Important fields:
   the placeholder expands to the FULL outfit (with shorts/shoes/etc.) and
   you can't strip the lower-body half from a placeholder. When inlining,
   copy only the upper-body subset of the outfit's tag string.
-- **Top-of-file comments** — read them. Per-character quirks live there
-  (e.g. tsu_chocola needs an `artist:NAME` tag on every prompt because the
-  v2 LoRA was trained on grey-bg VRChat shots and renders plasticky-3D
-  without one).
+- **Per-character quirks** — check project memory (`~/.claude/projects/`)
+  and any `notes` field in the config (e.g. tsu_chocola needs an
+  `artist:NAME` tag on every prompt because the v2 LoRA was trained on
+  grey-bg VRChat shots and renders plasticky-3D without one).
 
 ## 8. Things that bite
 
@@ -234,7 +238,7 @@ character. Important fields:
 | Two characters appear | `2girls`/`multiple girls` not in negative | Always add to negative (BASE_NEGATIVE usually has it; verify if customizing) |
 | Phantom feet/shoes in close-up | Lower-body tags + close-up framing | See §5 |
 | Character looks generic / off-model | Strong `artist:` tag swamping the LoRA | Drop the artist tag, or weight it down `(artist:NAME:0.8)` |
-| White / two-tone tail on a solid-tail char | Missing tags in negative | Add `white tail tip, two-tone tail, multicolored tail` to negative — or rely on the character's `negative_tags` in config.yaml |
+| White / two-tone tail on a solid-tail char | Missing tags in negative | Add `white tail tip, two-tone tail, multicolored tail` to negative — or rely on the character's `negative_tags` in its config |
 | Cropped head | Composition tags fighting framing | Add `(cropped head:1.4)` to negative |
 | Kemonomimi ears stay upright when mood calls for droop | LoRA default is upright; no ear tag = no change | Add `drooping ears` (sad/sleepy) or `flattened ears` (scared/angry/shy) per anime convention |
 | Off resolution | Non-standard width/height | Stick to 1024² / 1216×832 / 832×1216 |

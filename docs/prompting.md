@@ -444,7 +444,7 @@ session A/B tests.
 
 ### 9.3 The known-good template (cocoa emo-wink)
 
-Reference image: `cocoa_mizu/archive/done.yaml` → `emo-wink-nardack-3465`.
+Reference image: the `done` table (cocoa_mizu) → `emo-wink-nardack-3465`.
 Pattern:
 
 ```
@@ -492,7 +492,7 @@ color from a neighbor, bind it explicitly.
 
 ### 9.6 Identity tags must match training captions
 
-Each character's `config.yaml` has a `character_tags` field that auto-prepends
+Each character's config has a `character_tags` field that auto-prepends
 to every prompt. **These tags must match the training set's captions
 verbatim** — if `character_tags` includes `solid black fox tail` but the
 training captions only have `black fox tail`, the LoRA's identity anchor
@@ -528,14 +528,14 @@ to break the baked-in look.
 | `cocoa_mizu`  | OK    | Renders crisp 2D anime even noart, on most prompts. Use artist tags for style flavor, not as a corrective. |
 | `kutsu_rindo` | TBD   | Newer LoRA. Test before assuming either way. |
 
-When adding a per-character exception here, **also add a one-line
-reminder to that character's `config.yaml`** as a comment near
-`character_tags`, so anyone editing prompts for that character sees the
-note in context.
+When adding a per-character exception here, **also record it in project
+memory** (`~/.claude/projects/.../memory/`) so future sessions writing
+prompts for that character pick it up (config now lives as a JSON blob in
+`vrfu.db`, so it can't carry a free-form comment the way `config.yaml` did).
 
-To audit existing entries against this rule, grep the queue or use the
-one-shot script pattern: load `queue.yaml`, walk entries by character,
-flag any where `"artist:" not in prompt.lower()`.
+To audit existing entries against this rule, pull the queue with
+`store.queue_list()` (or `GET /api/queue?character=X`), walk entries by
+character, and flag any where `"artist:" not in prompt.lower()`.
 
 ### 9.8 Seed strategy
 
@@ -553,7 +553,7 @@ pinned. Strip the `seed:` line.
 ### 9.9 Outfit placeholders
 
 Queue prompts use `{outfit}` (default outfit) or `{outfit:variant}` to look
-up the outfit from the character's `config.yaml` `outfits:` block. This
+up the outfit from the character's config `outfits:` block. This
 keeps prompts short and lets you change a character's wardrobe in one
 place. Never inline a long outfit string in a prompt — always go through
 the config.
@@ -571,7 +571,7 @@ There are three layers of negatives, composed at runtime in this order:
    Quality, anatomy, text/marks, 3D-source kill (VRChat / MMD / render),
    multi-figure protection. Do NOT add character-specific negatives here.
 
-2. **`negative_tags`** in each character's `config.yaml` — appended for
+2. **`negative_tags`** in each character's config — appended for
    that character only. Use for identity-protection tags that fight
    that character's specific training artifacts (e.g. tsu_chocola has
    `white tail tip, two-tone tail, multicolored tail` because some

@@ -8,9 +8,9 @@ Common runtime issues and how to fix them. For installation problems, see [insta
 
 The model is over-attending to identity/feature tags rather than the `1girl` anchor. Fix:
 
-1. Make sure every queue prompt **starts** with `1girl, solo` (the website's Add Prompt modal does this; manually-edited queue.yaml might miss it)
+1. Make sure every queue prompt **starts** with `1girl, solo` (the website's Add Prompt modal does this; entries you build by hand via the API might miss it)
 2. Add `2girls, multiple girls, multiple views` to the negative prompt — the website's modal includes this by default
-3. Check `character_tags` in `config.yaml` — if it lists features that read like multiple characters (`black hair, white hair, blue hair`), consolidate (`black hair with white and blue streaks`)
+3. Check the character's `character_tags` (Characters page / `GET /api/character-info`) — if it lists features that read like multiple characters (`black hair, white hair, blue hair`), consolidate (`black hair with white and blue streaks`)
 
 ---
 
@@ -60,11 +60,7 @@ If you still OOM (typically as a slow run rather than a crash):
 
 1. **Drop the scale.** Try 1.4 or 1.25 in the picker. SDXL hires-fix at 2× peaks ~14 GB; 1.5× peaks ~10 GB; 1.25× peaks ~8 GB.
 2. **Close GPU-hungry apps.** Discord/Vesktop, browser hardware acceleration, VRChat, games. Check Task Manager → Performance → GPU. Dedicated GPU memory should drop below 2 GB before you start a run.
-3. **Set a permanent override** in `characters/<name>/config.yaml` if you always want a specific scale:
-   ```yaml
-   upscale_scale: 1.5
-   ```
-   The website picker still wins per-run; this is just the default.
+3. **Set a permanent override** if you always want a specific scale: add `upscale_scale: 1.5` to `characters/<name>/config.yaml`, then run `scripts\migrate_to_db.py` to load it into the DB (the Characters page doesn't expose this field). The website picker still wins per-run; this is just the default.
 4. Skip upscaling for very large source images (anything wider than 1216 already takes 2.4 GB just for the latent at 2×).
 
 ---

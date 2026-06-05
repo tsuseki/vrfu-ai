@@ -58,7 +58,7 @@ Edit and hard-refresh the browser. No tests, no linter configured.
 
 | Request shape | Right doc to read first | Notable concrete step |
 |---|---|---|
-| "Queue prompts for X" | [`docs/queue.md`](docs/queue.md) | `POST /api/queue/import` with a YAML list — never `Edit` `queue.yaml` directly |
+| "Queue prompts for X" | [`docs/queue.md`](docs/queue.md) | `POST /api/queue/import` with a YAML list — never write `vrfu.db` or `queue.yaml` directly |
 | "Set up new character" | [`docs/add-character.md`](docs/add-character.md) | Copy `_template/`, fill `character_tags` + `outfits.default` |
 | "Export X to send to a friend" | [`docs/exporting.md`](docs/exporting.md) | `python scripts/export_character.py --character X` |
 | "I got a bundle from a friend" | [`docs/exporting.md`](docs/exporting.md) (receiver section) | Unzip into repo root, fill any missing `character_tags` |
@@ -75,6 +75,22 @@ derived from `_common.py`'s own location and detect Claude Code worktree
 locations (`.claude/worktrees/<name>/`) so they always resolve to the
 real project root regardless of where the script was invoked from.
 
+**`scripts/store.py` is the single source of truth for *state*.** All
+runtime state — the queue, generated-image metadata (`done`), votes
+(`feedback`), the activity log, per-character `last_id`, and every
+character's config — lives in one SQLite database, `vrfu.db`, at the
+repo root. Every script and `web/server.py` imports `store` and goes
+through it; nothing opens the DB file directly. It runs in WAL mode with
+atomic transactions, so concurrent generators can't lose each other's
+writes — the May 2026 race that wiped 1,352 `done.yaml` entries is *why
+this exists* (see the header of `store.py`). The old `queue.yaml` /
+`done.yaml` / `feedback.json` / `activity.jsonl` / `characters/<name>/last_id.txt`
+files are now **legacy migration sources** kept on disk for rollback;
+`scripts/migrate_to_db.py` imports them into the DB (idempotent;
+`--rename-old` retires them once verified). Hot backups land in
+`db.snapshots/` via `store.snapshot()`. `vrfu.db` and `db.snapshots/`
+are gitignored — each user rebuilds them locally.
+
 **Web server is the orchestrator.** `web/server.py` is the only
 long-running process. It serves the UI from `web/`, exposes a JSON API
 for everything (queue CRUD, votes, run control, upscale, training,
@@ -82,35 +98,43 @@ organize, character config edit), and uses `spawn_tool()` to launch
 generation / upscale / training as child processes. The frontend polls
 `/api/run/status` for live progress.
 
-**Single source of truth for character config: `characters/<name>/config.yaml`.**
-The Characters page in the website edits this file; `generate.py` reads
-it; `scripts/export_character.py` ships it. There is no sidecar, no
-overlay, no in-memory shadow copy. When the user says *"I edited X in
-the website"*, X is in that file.
+**Character config lives in the DB, edited through the UI.** Each
+character's config (`character_tags`, `character_lora` path + weight,
+`negative_tags`, `outfits:` dict, `trigger_word`) is a row in the
+`character_config` table, read via `_common.load_character()` →
+`store.character_config_get()`. The Characters page in the website
+writes it (`POST /api/characters/save` → `store.character_config_set()`);
+`generate.py` reads it. The on-disk `characters/<name>/config.yaml` is
+now an **interchange/scaffold format only** — `_template/config.yaml`
+seeds a new character and export bundles ship a `config.yaml` — but the
+live copy the runtime uses is the DB row, and the UI does *not* mirror
+edits back to the file. When the user says *"I edited X in the website"*,
+X is in the DB, not `config.yaml`.
 
-**The queue is unified, not per-character.** `queue.yaml` at the repo
-root holds entries for every character. Each entry has a `character`
-field. Per-character `characters/<name>/queue.yaml` files exist as
-legacy stubs — ignore them; the canonical queue is the root one.
-`generate.py` reads the unified queue, processes entries matching its
-`--character` (or all of them in `--character all` mode), and moves
-completed entries to `characters/<name>/archive/done.yaml`.
+**The queue is unified, not per-character.** The `queue` table holds
+entries for every character; each row has a `character` field.
+`generate.py` reads it via `store.queue_list()`, processes entries
+matching its `--character` (or all of them in `--character all` mode),
+and on completion moves each entry into the `done` table in one atomic
+transaction (`store.done_upsert` + `store.queue_delete_by_labels`).
+Per-character `characters/<name>/queue.yaml` and the root `queue.yaml`
+are legacy stubs — ignore them.
 
-**Character configs are prepended at generation time.**
-`characters/<name>/config.yaml` contains `character_tags` (anchor tags
-like `1girl, solo, fox girl, ...`), `character_lora` path + weight,
-`negative_tags`, and an `outfits:` dict for `{outfit:name}` placeholder
-substitution. `generate.py` (via `prompt_build.py`) prepends
-`character_tags` and runs outfit-substitution before sending to the
-model. Queue entries do **not** need to repeat character anchors —
-only the scenario-specific prompt.
+**Character configs are prepended at generation time.** The character's
+config (`character_tags` anchor tags like `1girl, solo, fox girl, ...`,
+`character_lora` path + weight, `negative_tags`, and an `outfits:` dict
+for `{outfit:name}` placeholder substitution) is loaded from the DB and
+`generate.py` (via `prompt_build.py`) prepends `character_tags` and runs
+outfit-substitution before sending to the model. Queue entries do **not**
+need to repeat character anchors — only the scenario-specific prompt.
 
-**Activity log.** `activity.jsonl` at the repo root is append-only.
-`C.log_event()` writes one JSON line per significant event
-(`queue_added`, `queue_cleared`, `voted`, `organize_clicked`,
-`server_started`, `generated`). The Activity tab in the UI tails this
-file. It's the audit trail and the recovery substrate when state goes
-sideways.
+**Activity log.** The `activity` table is the append-only audit trail.
+`C.log_event()` → `store.activity_log()` inserts one row per significant
+event (`queue_imported`, `queue_cleared`, `voted`, `organize_clicked`,
+`server_started`, `generated`). The Activity tab in the UI reads it via
+`/api/activity`. It's the audit trail and the recovery substrate when
+state goes sideways. (The legacy `activity.jsonl` file is no longer
+written.)
 
 ## The preference-learning loop (important)
 
@@ -141,15 +165,19 @@ This is the project's central feedback mechanism. The user is voting
 
 ## Conventions to internalize before editing
 
-**Never have an agent (Edit / Write) modify `queue.yaml` directly.** A
-prior Sonnet sub-agent on an unrelated task wiped ~400 unfinished
-entries; the user lost work. `web/server.py` has `_backup_queue()`
-which snapshots `queue.yaml.last.bak` (1-step undo) and timestamped
-`queue.yaml.backups/queue.YYYYMMDD-HHMMSS.yaml` (rolling 20, triggered
-on shrinkage of ≥10 entries). **The backup only runs through
-`save_queue()`**, which means going through the API. Bulk queue work
-should `POST /api/queue/import` (appends a YAML list) or
-`POST /api/queue/update` per entry — never raw file writes.
+**Never have an agent (Edit / Write) touch `vrfu.db` directly, and never
+hand-edit the legacy state files.** Two prior wipes drove the current
+architecture: a Sonnet sub-agent rewrote `queue.yaml` and lost ~400
+entries, and a concurrent-generator race truncated 1,352 `done.yaml`
+rows. All state mutation goes through `scripts/store.py` (atomic, WAL,
+multi-process safe) — or, better, through the server API, which wraps it.
+`server.py`'s `save_queue()` still snapshots the DB on shrinkage
+(`store.snapshot()` → `db.snapshots/`, rolling 20) as a safety net. Bulk
+queue work should `POST /api/queue/import` (appends a YAML list of
+entries — each entry must carry its own `character` field) or
+`POST /api/queue/update` per entry. If you must script a bulk change
+outside the server, import `scripts/store.py` and call its functions —
+never open the `.db`, and never write the YAML/JSON files.
 
 **The "close-up rule" lives in `docs/queue.md`.** When framing is
 `close-up`, `face focus`, `bust shot`, `upper body`, `head shot`, or
@@ -182,10 +210,11 @@ and `_template` ship publicly.
 `app.js` / `index.html` / `style.css` (those are static and only need a
 hard browser refresh).
 
-**Windows-isms.** Backslash paths show up in `output: output\NNNN_label.png`
-strings inside `done.yaml`. UTF-8 stdout reconfiguration in `generate.py`
-is intentional for cp932 / cp1252 console boxes. The pre-push hook is a
-POSIX shell script — works because git ships its own sh on Windows.
+**Windows-isms.** Backslash paths show up in the `output_path` column of
+the `done` table (`output\NNNN_label.png`). UTF-8 stdout reconfiguration
+in `generate.py` is intentional for cp932 / cp1252 console boxes. The
+pre-push hook is a POSIX shell script — works because git ships its own
+sh on Windows.
 
 ## Memory
 
